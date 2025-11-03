@@ -65,7 +65,7 @@ async function loadPyodideAndModule() {
 }
 loadPyodideAndModule();
 
-// === SEARCH TICKER ===
+// === SEARCH TICKER (FIXED FOR AAPL) ===
 searchButton.addEventListener("click", () => {
     const query = searchInput.value.trim().toUpperCase();
     if (!query) return;
@@ -75,12 +75,13 @@ searchButton.addEventListener("click", () => {
 
 async function searchYahooFinance(ticker) {
     let attempts = 0;
-    while (!pyodideReady && attempts < 60) {
+    const maxAttempts = 60;
+    while (!pyodideReady && attempts < maxAttempts) {
         await new Promise(r => setTimeout(r, 1000));
         attempts++;
     }
     if (!pyodideReady) {
-        searchResults.innerHTML = "<p style='color:red;'>Timeout. Please refresh.</p>";
+        searchResults.innerHTML = "<p style='color:red;'>Timeout. Refresh page.</p>";
         return;
     }
 
@@ -90,15 +91,16 @@ async function searchYahooFinance(ticker) {
             import json
             t = yf.Ticker("${ticker}")
             info = t.info
+            price = info.get("regularMarketPrice") or info.get("currentPrice") or info.get("previousClose") or 0
             data = {
                 "symbol": info.get("symbol", "${ticker}"),
                 "name": info.get("longName") or info.get("shortName") or "${ticker}",
-                "price": round(info.get("regularMarketPrice") or info.get("currentPrice") or 0, 2)
+                "price": round(price, 2)
             }
             json.dumps(data)
         `);
         const stock = JSON.parse(result);
-        if (!stock.price || stock.price === 0) throw new Error("No price");
+        if (!stock.price || stock.price === 0) throw new Error("No price data");
         displaySearchResult(stock);
     } catch (err) {
         searchResults.innerHTML = `<p style='color:red;'>Invalid ticker. Try AAPL, MSFT, GOOGL.</p>`;
@@ -114,7 +116,7 @@ function displaySearchResult(stock) {
     `;
 }
 
-// === PORTFOLIO MANAGEMENT ===
+// === PORTFOLIO ===
 function addToPortfolio(symbol, name) {
     if (portfolio.length >= 5) {
         alert("Maximum 5 securities allowed.");
@@ -131,8 +133,8 @@ function addToPortfolio(symbol, name) {
     searchInput.value = "";
 }
 
-function removeFromPortfolio(index) {
-    portfolio.splice(index, 1);
+function removeFromPortfolio(i) {
+    portfolio.splice(i, 1);
     updatePortfolioTable();
 }
 
@@ -143,7 +145,7 @@ function updatePortfolioTable() {
         row.innerHTML = `
             <td>${item.name} (${item.symbol})</td>
             <td>${item.weight}%</td>
-            <td><button onclick="removeFromPortfolio(${i})" style="background:#c33;color:#fff;padding:4px 8px;font-size:0.8em;">Remove</button></td>
+            <td><button onclick="removeFromPortfolio(${i})" style="background:#c33;color:#fff;padding:4px 8px;">Remove</button></td>
         `;
     });
 }
@@ -169,7 +171,7 @@ calculateVarBtn.addEventListener("click", async () => {
         const result = JSON.parse(resultJson);
         displayVaRResults(result);
     } catch (err) {
-        resultsTable.innerHTML = `<p style='color:red;'>Calculation failed. See console.</p>`;
+        resultsTable.innerHTML = `<p style='color:red;'>Error. Check console (F12).</p>`;
         console.error("VaR error:", err);
     }
 });
@@ -218,7 +220,7 @@ function createRiskReturnChart(data) {
     const labels = [], risks = [], returns = [], colors = [], sizes = [];
 
     for (const [sym, vals] of Object.entries(data)) {
-        const risk = -vals.Normal95 * 100;  // Loss % (positive)
+        const risk = -vals.Normal95 * 100;
         const ret = vals.ExpReturn * 100;
 
         if (sym === "Portfolio") {
@@ -258,25 +260,17 @@ function createRiskReturnChart(data) {
                 legend: { display: false }
             },
             scales: {
-                x: {
-                    title: { display: true, text: "1-Day VaR 95% (Loss %)", color: "#fff" },
-                    ticks: { color: "#fff" },
-                    grid: { color: "#333" }
-                },
-                y: {
-                    title: { display: true, text: "Expected Annual Return (%)", color: "#fff" },
-                    ticks: { color: "#fff" },
-                    grid: { color: "#333" }
-                }
+                x: { title: { display: true, text: "1-Day VaR 95% (Loss %)", color: "#fff" }, ticks: { color: "#fff" }, grid: { color: "#333" } },
+                y: { title: { display: true, text: "Expected Annual Return (%)", color: "#fff" }, ticks: { color: "#fff" }, grid: { color: "#333" } }
             }
         }
     });
 }
 
-// === SHOW HISTORICAL PRICES ===
+// === SHOW PRICES ===
 showPricesBtn.addEventListener("click", async () => {
     if (portfolio.length === 0) {
-        priceData.innerHTML = "<p>No securities in portfolio.</p>";
+        priceData.innerHTML = "<p>No securities.</p>";
         return;
     }
     priceData.innerHTML = "<p>Fetching prices...</p>";
