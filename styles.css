@@ -127,3 +127,30 @@ th {
     table { font-size: 0.8em; }
     th, td { padding: 6px; }
 }
+/* === Risk-Return Chart Styling === */
+.chart-container {
+    background: #1a1a1a;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 25px 0;
+    max-width: 100%;
+    box-shadow: 0 0 10px rgba(245, 166, 35, 0.1);
+    overflow: hidden;
+}
+
+#riskReturnChart {
+    max-height: 400px;
+    width: 100% !important;
+    height: auto !important;
+}
+
+/* Responsive fix for small screens */
+@media (max-width: 600px) {
+    .chart-container {
+        padding: 10px;
+        margin: 15px 0;
+    }
+    #riskReturnChart {
+        max-height: 300px;
+    }
+}
