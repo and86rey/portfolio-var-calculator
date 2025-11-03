@@ -8,7 +8,6 @@ Features:
 - Expected annual return
 - Works with yfinance (free)
 - Fully typed, documented, modular
-- Runs locally: `python var_calculator.py`
 - Imported by Pyodide in browser
 
 Author: [Your Name]
@@ -98,20 +97,3 @@ def calculate_full_portfolio(
 
     results["Portfolio"] = calculate_portfolio_var(returns, weights)
     return results
-
-
-# === LOCAL DEMO ===
-if __name__ == "__main__":
-    print("Running local demo...")
-    try:
-        result = calculate_full_portfolio(
-            symbols=["AAPL", "MSFT"],
-            weights=[60, 40]
-        )
-        print("\nVaR Results:")
-        for name, vals in result.items():
-            print(f"\n{name}:")
-            print(f"  Normal 95%: {vals['Normal95']:.4f}")
-            print(f"  Expected Return: {vals['ExpReturn']:.2%}")
-    except Exception as e:
-        print(f"Demo failed: {e}")
