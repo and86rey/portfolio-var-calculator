@@ -14,96 +14,154 @@ const showPricesBtn = document.getElementById("showPrices");
 const priceData = document.getElementById("priceData");
 const loadingSpinner = document.getElementById("loadingSpinner");
 
-// === Initialize Pyodide + Import Python Module (FIXED) ===
+// === Embedded Python Module (NO FETCH!) ===
+const VAR_CALCULATOR_PY = `
+import numpy as np
+import pandas as pd
+from scipy.stats import norm, skew, kurtosis
+from typing import List, Dict
+
+def fetch_returns(symbols: List[str], period: str = "1y") -> pd.DataFrame:
+    import yfinance as yf
+    data = yf.download(symbols, period=period, progress=False)["Adj Close"]
+    data = data.dropna()
+    if data.empty:
+        raise ValueError("No data found for symbols")
+    return np.log(data / data.shift(1)).dropna()
+
+def calculate_var_single(returns: pd.Series) -> Dict[str, float]:
+    mean, std = returns.mean(), returns.std()
+    s, k = skew(returns), kurtosis(returns, fisher=True)
+
+    var95 = norm.ppf(0.05, mean, std)
+    var99 = norm.ppf(0.01, mean, std)
+
+    hist95 = np.percentile(returns, 5)
+    hist99 = np.percentile(returns, 1)
+
+    sims = np.random.normal(mean, std, 10000)
+    mc95 = np.percentile(sims, 5)
+    mc99 = np.percentile(sims, 1)
+
+    z95, z99 = norm.ppf(0.05), norm.ppf(0.01)
+    cf95 = z95 + (z95**2-1)*s/6 + (z95**3-3*z95)*(k-3)/24 - (2*z95**3-5*z95)*(s**2)/36
+    cf99 = z99 + (z99**2-1)*s/6 + (z99**3-3*z99)*(k-3)/24 - (2*z99**3-5*z99)*(s**2)/36
+    cf_var95 = mean + cf95 * std
+    cf_var99 = mean + cf99 * std
+
+    exp_ret = (1 + mean) ** 252 - 1
+
+    return {
+        "Normal95": round(var95, 6),
+        "Normal99": round(var99, 6),
+        "Hist95": round(hist95, 6),
+        "Hist99": round(hist99, 6),
+        "MC95": round(mc95, 6),
+        "MC99": round(mc99, 6),
+        "CF95": round(cf_var95, 6),
+        "CF99": round(cf_var99, 6),
+        "ExpReturn": round(exp_ret, 6)
+    }
+
+def calculate_portfolio_var(returns: pd.DataFrame, weights: np.ndarray) -> Dict[str, float]:
+    portfolio_returns = returns.dot(weights)
+    return calculate_var_single(portfolio_returns)
+
+def calculate_full_portfolio(symbols: List[str], weights: List[float]) -> Dict:
+    weights = np.array(weights) / 100
+    if not np.isclose(weights.sum(), 1.0):
+        raise ValueError("Weights must sum to 100%")
+    returns = fetch_returns(symbols)
+    results = {}
+    for sym in symbols:
+        results[sym] = calculate_var_single(returns[sym])
+    results["Portfolio"] = calculate_portfolio_var(returns, weights)
+    return results
+`;
+
+// === Initialize Pyodide + Load Embedded Module ===
 async function loadPyodideAndModule() {
     if (pyodideReady) return;
 
     try {
         console.log("Loading Pyodide...");
         loadingSpinner.style.display = "block";
-        loadingSpinner.innerHTML = "Loading Python engine... (first time: 20–40 sec)";
+        loadingSpinner.innerHTML = "Loading Python... (20–40 sec)";
 
         const pyodide = await loadPyodide();
         await pyodide.loadPackage("micropip");
 
-        console.log("Installing compatible yfinance + pandas + numpy + scipy...");
+        console.log("Installing yfinance 0.2.38 + deps...");
         await pyodide.runPythonAsync(`
             import micropip
-            # Use yfinance 0.2.38 (last version before curl-cffi)
             await micropip.install("yfinance==0.2.38")
             await micropip.install("pandas")
             await micropip.install("numpy")
             await micropip.install("scipy")
-            print("All packages installed")
         `);
 
-        console.log("Fetching var_calculator.py...");
-        const moduleUrl = "https://raw.githubusercontent.com/Yand86rey/portfolio-var-calculator/main/var_calculator.py";
-        const response = await fetch(moduleUrl);
-        if (!response.ok) throw new Error(`HTTP ${response.status}: Module not found`);
-        const pyCode = await response.text();
-        pyodide.runPython(pyCode);
-        console.log("var_calculator.py loaded");
+        console.log("Loading embedded var_calculator.py...");
+        pyodide.runPython(VAR_CALCULATOR_PY);
+        console.log("Python module loaded");
 
         window.pyodide = pyodide;
         pyodideReady = true;
         loadingSpinner.innerHTML = "Ready!";
         setTimeout(() => loadingSpinner.style.display = "none", 1000);
-        console.log("Pyodide READY!");
     } catch (error) {
         console.error("Setup failed:", error);
-        loadingSpinner.innerHTML = `<span style="color:red;">Error: ${error.message}</span>`;
+        loadingSpinner.innerHTML = \`<span style="color:red;">Error: \${error.message}</span>\`;
     }
 }
 loadPyodideAndModule();
 
-// === Search Security (Robust) ===
+// === Search Security ===
 searchButton.addEventListener("click", () => {
     const query = searchInput.value.trim().toUpperCase();
     if (!query) return;
-    searchResults.innerHTML = `<p>Searching <b>${query}</b>...</p>`;
+    searchResults.innerHTML = \`<p>Searching <b>\${query}</b>...</p>\`;
     searchYahooFinance(query);
 });
 
 async function searchYahooFinance(ticker) {
     let attempts = 0;
-    const maxAttempts = 40; // 40 sec max
+    const maxAttempts = 40;
     while (!pyodideReady && attempts < maxAttempts) {
         await new Promise(r => setTimeout(r, 1000));
         attempts++;
     }
     if (!pyodideReady) {
-        searchResults.innerHTML = "<p style='color:red;'>Timeout: Refresh page.</p>";
+        searchResults.innerHTML = "<p style='color:red;'>Timeout. Refresh.</p>";
         return;
     }
 
     try {
-        const result = await window.pyodide.runPythonAsync(`
+        const result = await window.pyodide.runPythonAsync(\`
             import yfinance as yf
             import json
-            t = yf.Ticker("${ticker}")
-            info = t.fast_info  # Faster than .info
+            t = yf.Ticker("\${ticker}")
+            info = t.fast_info
             data = {
-                "symbol": info.get("symbol", "${ticker}"),
-                "name": info.get("longName") or info.get("shortName") or "${ticker}",
+                "symbol": info.get("symbol", "\${ticker}"),
+                "name": info.get("longName") or info.get("shortName") or "\${ticker}",
                 "price": round(info.get("lastPrice") or info.get("regularMarketPrice"), 2) or "N/A"
             }
             json.dumps(data)
-        `);
+        \`);
         const stock = JSON.parse(result);
         displaySearchResult(stock);
     } catch (err) {
-        searchResults.innerHTML = `<p style='color:red;'>Invalid ticker. Try AAPL, MSFT.</p>`;
-        console.error("Search failed:", err);
+        searchResults.innerHTML = \`<p style='color:red;'>Invalid ticker. Try AAPL, MSFT.</p>\`;
+        console.error(err);
     }
 }
 
 function displaySearchResult(stock) {
-    searchResults.innerHTML = `
-        <p><b>${stock.name}</b> (${stock.symbol}) - $${stock.price}</p>
+    searchResults.innerHTML = \`
+        <p><b>\${stock.name}</b> (\${stock.symbol}) - $\${stock.price}</p>
         <input type="number" id="weightInput" placeholder="Weight %" min="1" max="100" style="width:80px;padding:5px;">
-        <button onclick="addToPortfolio('${stock.symbol}', '${stock.name.replace(/'/g, "\\'")}')">Add</button>
-    `;
+        <button onclick="addToPortfolio('\${stock.symbol}', '\${stock.name.replace(/'/g, "\\'")}')">Add</button>
+    \`;
 }
 
 // === Portfolio Management ===
@@ -132,11 +190,11 @@ function updatePortfolioTable() {
     portfolioTable.innerHTML = "";
     portfolio.forEach((item, i) => {
         const row = portfolioTable.insertRow();
-        row.innerHTML = `
-            <td>${item.name} (${item.symbol})</td>
-            <td>${item.weight}%</td>
-            <td><button onclick="removeFromPortfolio(${i})" style="background:#c33;color:#fff;padding:4px 8px;">Remove</button></td>
-        `;
+        row.innerHTML = \`
+            <td>\${item.name} (\${item.symbol})</td>
+            <td>\${item.weight}%</td>
+            <td><button onclick="removeFromPortfolio(\${i})" style="background:#c33;color:#fff;padding:4px 8px;">Remove</button></td>
+        \`;
     });
 }
 
@@ -150,12 +208,12 @@ calculateVarBtn.addEventListener("click", async () => {
     try {
         const symbols = portfolio.map(p => p.symbol);
         const weights = portfolio.map(p => p.weight);
-        const resultJson = await window.pyodide.runPythonAsync(`
+        const resultJson = await window.pyodide.runPythonAsync(\`
             import json
             from var_calculator import calculate_full_portfolio
-            result = calculate_full_portfolio(${JSON.stringify(symbols)}, ${JSON.stringify(weights)})
+            result = calculate_full_portfolio(\${JSON.stringify(symbols)}, \${JSON.stringify(weights)})
             json.dumps(result)
-        `);
+        \`);
         const result = JSON.parse(resultJson);
         displayVaRResults(result);
     } catch (err) {
@@ -165,7 +223,7 @@ calculateVarBtn.addEventListener("click", async () => {
 });
 
 function displayVaRResults(data) {
-    let html = `
+    let html = \`
         <table border="1">
             <tr>
                 <th>Security</th>
@@ -179,22 +237,22 @@ function displayVaRResults(data) {
                 <th>CF 99%</th>
                 <th>Exp. Return</th>
             </tr>
-    `;
+    \`;
     for (const [sym, vals] of Object.entries(data)) {
-        html += `<tr>
-            <td><b>${sym}</b></td>
-            <td>${vals.Normal95}</td>
-            <td>${vals.Normal99}</td>
-            <td>${vals.Hist95}</td>
-            <td>${vals.Hist99}</td>
-            <td>${vals.MC95}</td>
-            <td>${vals.MC99}</td>
-            <td>${vals.CF95}</td>
-            <td>${vals.CF99}</td>
-            <td>${(vals.ExpReturn*100).toFixed(2)}%</td>
-        </tr>`;
+        html += \`<tr>
+            <td><b>\${sym}</b></td>
+            <td>\${vals.Normal95}</td>
+            <td>\${vals.Normal99}</td>
+            <td>\${vals.Hist95}</td>
+            <td>\${vals.Hist99}</td>
+            <td>\${vals.MC95}</td>
+            <td>\${vals.MC99}</td>
+            <td>\${vals.CF95}</td>
+            <td>\${vals.CF99}</td>
+            <td>\${(vals.ExpReturn*100).toFixed(2)}%</td>
+        </tr>\`;
     }
-    html += `</table>`;
+    html += \`</table>\`;
     resultsTable.innerHTML = html;
     createRiskReturnChart(data);
 }
@@ -235,7 +293,7 @@ function createRiskReturnChart(data) {
             plugins: {
                 tooltip: {
                     callbacks: {
-                        label: ctx => `${ctx.raw.label}: Risk ${ctx.raw.x.toFixed(3)}%, Return ${ctx.raw.y.toFixed(2)}%`
+                        label: ctx => \`\${ctx.raw.label}: Risk \${ctx.raw.x.toFixed(3)}%, Return \${ctx.raw.y.toFixed(2)}%\`
                     }
                 },
                 legend: { display: false }
@@ -257,23 +315,23 @@ showPricesBtn.addEventListener("click", async () => {
     priceData.innerHTML = "<p>Fetching prices...</p>";
     const symbols = portfolio.map(p => p.symbol);
     try {
-        const prices = await window.pyodide.runPythonAsync(`
+        const prices = await window.pyodide.runPythonAsync(\`
             import yfinance as yf
             import json
-            data = yf.download(${JSON.stringify(symbols)}, period="3mo", progress=False)["Adj Close"]
+            data = yf.download(\${JSON.stringify(symbols)}, period="3mo", progress=False)["Adj Close"]
             data = data.tail(30).round(2)
             json.dumps({"index": data.index.strftime('%Y-%m-%d').tolist(), "data": data.values.tolist()})
-        `);
+        \`);
         const df = JSON.parse(prices);
-        let html = `<table border="1"><tr><th>Date</th>`;
-        symbols.forEach(s => html += `<th>${s}</th>`);
-        html += `</tr>`;
+        let html = \`<table border="1"><tr><th>Date</th>\`;
+        symbols.forEach(s => html += \`<th>\${s}</th>\`);
+        html += \`</tr>\`;
         df.data.forEach((row, i) => {
-            html += `<tr><td>${df.index[i]}</td>`;
-            row.forEach(v => html += `<td>${v !== null ? v : 'N/A'}</td>`);
-            html += `</tr>`;
+            html += \`<tr><td>\${df.index[i]}</td>\`;
+            row.forEach(v => html += \`<td>\${v !== null ? v : 'N/A'}</td>\`);
+            html += \`</tr>\`;
         });
-        html += `</table>`;
+        html += \`</table>\`;
         priceData.innerHTML = html;
     } catch (err) {
         priceData.innerHTML = "<p style='color:red;'>Failed to load prices.</p>";
