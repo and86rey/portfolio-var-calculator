@@ -21,13 +21,16 @@ async function loadPyodideAndModule() {
     try {
         console.log("Loading Pyodide...");
         loadingSpinner.style.display = "block";
+        loadingSpinner.innerHTML = "Loading Python engine... (first time: 20–40 sec)";
+
         const pyodide = await loadPyodide();
         await pyodide.loadPackage("micropip");
-        
-        console.log("Installing packages (yfinance, pandas, numpy, scipy)...");
+
+        console.log("Installing compatible yfinance + pandas + numpy + scipy...");
         await pyodide.runPythonAsync(`
             import micropip
-            await micropip.install("yfinance==0.2.40")  # Lightweight version
+            # Use yfinance 0.2.38 (last version before curl-cffi)
+            await micropip.install("yfinance==0.2.38")
             await micropip.install("pandas")
             await micropip.install("numpy")
             await micropip.install("scipy")
@@ -35,25 +38,26 @@ async function loadPyodideAndModule() {
         `);
 
         console.log("Fetching var_calculator.py...");
-        const moduleUrl = "https://raw.githubusercontent.com/and86rey/portfolio-var-calculator/main/var_calculator.py";
+        const moduleUrl = "https://raw.githubusercontent.com/Yand86rey/portfolio-var-calculator/main/var_calculator.py";
         const response = await fetch(moduleUrl);
-        if (!response.ok) throw new Error("Failed to load Python module (404 or network)");
+        if (!response.ok) throw new Error(`HTTP ${response.status}: Module not found`);
         const pyCode = await response.text();
         pyodide.runPython(pyCode);
-        console.log("var_calculator.py loaded and executed");
+        console.log("var_calculator.py loaded");
 
         window.pyodide = pyodide;
         pyodideReady = true;
-        loadingSpinner.style.display = "none";
+        loadingSpinner.innerHTML = "Ready!";
+        setTimeout(() => loadingSpinner.style.display = "none", 1000);
         console.log("Pyodide READY!");
     } catch (error) {
-        console.error("Pyodide setup failed:", error);
+        console.error("Setup failed:", error);
         loadingSpinner.innerHTML = `<span style="color:red;">Error: ${error.message}</span>`;
     }
 }
 loadPyodideAndModule();
 
-// === Search Security (FIXED with timeout) ===
+// === Search Security (Robust) ===
 searchButton.addEventListener("click", () => {
     const query = searchInput.value.trim().toUpperCase();
     if (!query) return;
@@ -63,13 +67,13 @@ searchButton.addEventListener("click", () => {
 
 async function searchYahooFinance(ticker) {
     let attempts = 0;
-    const maxAttempts = 15; // ~15s max wait
+    const maxAttempts = 40; // 40 sec max
     while (!pyodideReady && attempts < maxAttempts) {
         await new Promise(r => setTimeout(r, 1000));
         attempts++;
     }
     if (!pyodideReady) {
-        searchResults.innerHTML = "<p style='color:red;'>Timeout: Python engine failed to load. Refresh.</p>";
+        searchResults.innerHTML = "<p style='color:red;'>Timeout: Refresh page.</p>";
         return;
     }
 
@@ -78,21 +82,19 @@ async function searchYahooFinance(ticker) {
             import yfinance as yf
             import json
             t = yf.Ticker("${ticker}")
-            info = t.info
-            if not info or "symbol" not in info:
-                raise ValueError("No data")
+            info = t.fast_info  # Faster than .info
             data = {
-                "symbol": info["symbol"],
-                "name": info.get("longName") or info.get("shortName") or ticker,
-                "price": info.get("currentPrice") or info.get("regularMarketPrice") or "N/A"
+                "symbol": info.get("symbol", "${ticker}"),
+                "name": info.get("longName") or info.get("shortName") or "${ticker}",
+                "price": round(info.get("lastPrice") or info.get("regularMarketPrice"), 2) or "N/A"
             }
             json.dumps(data)
         `);
         const stock = JSON.parse(result);
         displaySearchResult(stock);
     } catch (err) {
-        searchResults.innerHTML = `<p style='color:red;'>Invalid ticker or data error. Try MSFT.</p>`;
-        console.error(err);
+        searchResults.innerHTML = `<p style='color:red;'>Invalid ticker. Try AAPL, MSFT.</p>`;
+        console.error("Search failed:", err);
     }
 }
 
@@ -138,7 +140,7 @@ function updatePortfolioTable() {
     });
 }
 
-// === Calculate VaR using Python Module ===
+// === Calculate VaR ===
 calculateVarBtn.addEventListener("click", async () => {
     if (portfolio.length === 0) {
         resultsTable.innerHTML = "<p>No securities.</p>";
@@ -157,7 +159,7 @@ calculateVarBtn.addEventListener("click", async () => {
         const result = JSON.parse(resultJson);
         displayVaRResults(result);
     } catch (err) {
-        resultsTable.innerHTML = "<p style='color:red;'>Calculation error. Check console.</p>";
+        resultsTable.innerHTML = "<p style='color:red;'>Error. Check console.</p>";
         console.error(err);
     }
 });
@@ -274,6 +276,6 @@ showPricesBtn.addEventListener("click", async () => {
         html += `</table>`;
         priceData.innerHTML = html;
     } catch (err) {
-        priceData.innerHTML = "<p style='color:red;'>Price fetch failed.</p>";
+        priceData.innerHTML = "<p style='color:red;'>Failed to load prices.</p>";
     }
 });
