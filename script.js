@@ -3,7 +3,7 @@ let portfolio = [];
 let pyodideReady = false;
 let riskChart = null;
 
-// === DOM ELEMENTS ===
+// === DOM ===
 const searchInput = document.getElementById("searchInput");
 const searchButton = document.getElementById("searchButton");
 const searchResults = document.getElementById("searchResults");
@@ -21,12 +21,11 @@ async function loadPyodideAndModule() {
     try {
         console.log("Loading Pyodide...");
         loadingSpinner.style.display = "block";
-        loadingSpinner.innerHTML = "Loading Python engine... (20–40 sec)";
+        loadingSpinner.innerHTML = "Loading Python... (20–40 sec)";
 
         const pyodide = await loadPyodide();
         await pyodide.loadPackage("micropip");
 
-        console.log("Installing yfinance + deps...");
         await pyodide.runPythonAsync(`
             import micropip
             await micropip.install("yfinance==0.2.38")
@@ -35,56 +34,60 @@ async function loadPyodideAndModule() {
             await micropip.install("scipy")
         `);
 
-        // === PATCH requests.get TO USE CORS PROXY ===
+        // === NUCLEAR CORS FIX: Use allorigins.win ===
         await pyodide.runPythonAsync(`
             import requests
+            import json
+            from urllib.parse import quote
+
             original_get = requests.get
+
             def proxy_get(url, **kwargs):
-                proxy_url = "https://corsproxy.io/?" + url
-                return original_get(proxy_url, **kwargs)
+                encoded_url = quote(url, safe='')
+                proxy_url = f"https://api.allorigins.win/get?url={encoded_url}"
+                response = original_get(proxy_url, **kwargs)
+                if response.status_code == 200:
+                    data = json.loads(response.text)
+                    return type('Response', (), {
+                        'text': data['contents'],
+                        'content': data['contents'].encode(),
+                        'status_code': 200,
+                        'url': url
+                    })
+                else:
+                    return response
+
             requests.get = proxy_get
         `);
 
-        // === LOAD var_calculator.py FROM GITHUB ===
+        // === LOAD var_calculator.py ===
         const moduleUrl = "https://cdn.jsdelivr.net/gh/and86rey/portfolio-var-calculator@main/var_calculator.py";
-        console.log("Fetching var_calculator.py...");
         const response = await fetch(moduleUrl);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw new Error("Failed to load module");
         const pyCode = await response.text();
         pyodide.runPython(pyCode);
-        console.log("var_calculator.py loaded");
 
         window.pyodide = pyodide;
         pyodideReady = true;
         loadingSpinner.innerHTML = "Ready!";
         setTimeout(() => loadingSpinner.style.display = "none", 1000);
     } catch (err) {
-        console.error("Setup failed:", err);
-        loadingSpinner.innerHTML = `<span style="color:red;">Error: ${err.message}</span>`;
+        loadingSpinner.innerHTML = `<span style="color:red;">Load failed: ${err.message}</span>`;
+        console.error(err);
     }
 }
 loadPyodideAndModule();
 
-// === SEARCH TICKER (FIXED FOR AAPL) ===
+// === SEARCH (FIXED FOR AAPL) ===
 searchButton.addEventListener("click", () => {
-    const query = searchInput.value.trim().toUpperCase();
-    if (!query) return;
-    searchResults.innerHTML = `<p>Searching <b>${query}</b>...</p>`;
-    searchYahooFinance(query);
+    const q = searchInput.value.trim().toUpperCase();
+    if (!q) return;
+    searchResults.innerHTML = `<p>Searching <b>${q}</b>...</p>`;
+    searchYahooFinance(q);
 });
 
 async function searchYahooFinance(ticker) {
-    let attempts = 0;
-    const maxAttempts = 60;
-    while (!pyodideReady && attempts < maxAttempts) {
-        await new Promise(r => setTimeout(r, 1000));
-        attempts++;
-    }
-    if (!pyodideReady) {
-        searchResults.innerHTML = "<p style='color:red;'>Timeout. Refresh page.</p>";
-        return;
-    }
-
+    while (!pyodideReady) await new Promise(r => setTimeout(r, 1000));
     try {
         const result = await window.pyodide.runPythonAsync(`
             import yfinance as yf
@@ -95,16 +98,15 @@ async function searchYahooFinance(ticker) {
             data = {
                 "symbol": info.get("symbol", "${ticker}"),
                 "name": info.get("longName") or info.get("shortName") or "${ticker}",
-                "price": round(price, 2)
+                "price": round(price, 2) if price else "N/A"
             }
             json.dumps(data)
         `);
         const stock = JSON.parse(result);
-        if (!stock.price || stock.price === 0) throw new Error("No price data");
         displaySearchResult(stock);
     } catch (err) {
-        searchResults.innerHTML = `<p style='color:red;'>Invalid ticker. Try AAPL, MSFT, GOOGL.</p>`;
-        console.error("Search error:", err);
+        searchResults.innerHTML = `<p style='color:red;'>Invalid ticker. Try AAPL.</p>`;
+        console.error(err);
     }
 }
 
@@ -118,16 +120,10 @@ function displaySearchResult(stock) {
 
 // === PORTFOLIO ===
 function addToPortfolio(symbol, name) {
-    if (portfolio.length >= 5) {
-        alert("Maximum 5 securities allowed.");
-        return;
-    }
-    const weight = parseFloat(document.getElementById("weightInput").value);
-    if (isNaN(weight) || weight <= 0 || weight > 100) {
-        alert("Enter weight between 1 and 100%");
-        return;
-    }
-    portfolio.push({ symbol, name, weight });
+    if (portfolio.length >= 5) return alert("Max 5");
+    const w = parseFloat(document.getElementById("weightInput").value);
+    if (isNaN(w) || w <= 0 || w > 100) return alert("Weight 1–100%");
+    portfolio.push({ symbol, name, weight: w });
     updatePortfolioTable();
     searchResults.innerHTML = "";
     searchInput.value = "";
@@ -142,167 +138,80 @@ function updatePortfolioTable() {
     portfolioTable.innerHTML = "";
     portfolio.forEach((item, i) => {
         const row = portfolioTable.insertRow();
-        row.innerHTML = `
-            <td>${item.name} (${item.symbol})</td>
-            <td>${item.weight}%</td>
-            <td><button onclick="removeFromPortfolio(${i})" style="background:#c33;color:#fff;padding:4px 8px;">Remove</button></td>
-        `;
+        row.innerHTML = `<td>${item.name} (${item.symbol})</td><td>${item.weight}%</td><td><button onclick="removeFromPortfolio(${i})" style="background:#c33;color:#fff;padding:4px 8px;">Remove</button></td>`;
     });
 }
 
 // === CALCULATE VAR ===
 calculateVarBtn.addEventListener("click", async () => {
-    if (portfolio.length === 0) {
-        resultsTable.innerHTML = "<p>Add at least one security.</p>";
-        return;
-    }
-    resultsTable.innerHTML = "<p>Calculating VaR... (10–20 sec)</p>";
+    if (portfolio.length === 0) return resultsTable.innerHTML = "<p>No securities.</p>";
+    resultsTable.innerHTML = "<p>Calculating... (10–20 sec)</p>";
     try {
         const symbols = portfolio.map(p => p.symbol);
         const weights = portfolio.map(p => p.weight);
-
-        const resultJson = await window.pyodide.runPythonAsync(`
+        const result = await window.pyodide.runPythonAsync(`
             import json
             from var_calculator import calculate_full_portfolio
             result = calculate_full_portfolio(${JSON.stringify(symbols)}, ${JSON.stringify(weights)})
             json.dumps(result)
         `);
-
-        const result = JSON.parse(resultJson);
-        displayVaRResults(result);
+        displayVaRResults(JSON.parse(result));
     } catch (err) {
-        resultsTable.innerHTML = `<p style='color:red;'>Error. Check console (F12).</p>`;
-        console.error("VaR error:", err);
+        resultsTable.innerHTML = `<p style='color:red;'>Error. Check console.</p>`;
+        console.error(err);
     }
 });
 
 function displayVaRResults(data) {
-    let html = `
-        <table border="1">
-            <tr>
-                <th>Security</th>
-                <th>Normal 95%</th>
-                <th>Normal 99%</th>
-                <th>Hist 95%</th>
-                <th>Hist 99%</th>
-                <th>MC 95%</th>
-                <th>MC 99%</th>
-                <th>CF 95%</th>
-                <th>CF 99%</th>
-                <th>Exp. Return</th>
-            </tr>
-    `;
-
-    for (const [sym, vals] of Object.entries(data)) {
-        html += `
-            <tr>
-                <td><b>${sym}</b></td>
-                <td>${vals.Normal95}</td>
-                <td>${vals.Normal99}</td>
-                <td>${vals.Hist95}</td>
-                <td>${vals.Hist99}</td>
-                <td>${vals.MC95}</td>
-                <td>${vals.MC99}</td>
-                <td>${vals.CF95}</td>
-                <td>${vals.CF99}</td>
-                <td>${(vals.ExpReturn * 100).toFixed(2)}%</td>
-            </tr>
-        `;
+    let html = `<table border="1"><tr><th>Security</th><th>Normal 95%</th><th>Normal 99%</th><th>Hist 95%</th><th>Hist 99%</th><th>MC 95%</th><th>MC 99%</th><th>CF 95%</th><th>CF 99%</th><th>Exp. Return</th></tr>`;
+    for (const [k, v] of Object.entries(data)) {
+        html += `<tr><td><b>${k}</b></td><td>${v.Normal95}</td><td>${v.Normal99}</td><td>${v.Hist95}</td><td>${v.Hist99}</td><td>${v.MC95}</td><td>${v.MC99}</td><td>${v.CF95}</td><td>${v.CF99}</td><td>${(v.ExpReturn*100).toFixed(2)}%</td></tr>`;
     }
-    html += "</table>";
+    html += `</table>`;
     resultsTable.innerHTML = html;
     createRiskReturnChart(data);
 }
 
-// === RISK-RETURN CHART ===
+// === CHART ===
 function createRiskReturnChart(data) {
     const ctx = document.getElementById("riskReturnChart").getContext("2d");
     const labels = [], risks = [], returns = [], colors = [], sizes = [];
-
-    for (const [sym, vals] of Object.entries(data)) {
-        const risk = -vals.Normal95 * 100;
-        const ret = vals.ExpReturn * 100;
-
-        if (sym === "Portfolio") {
-            labels.push("PORTFOLIO");
-            colors.push("rgba(255, 0, 0, 0.9)");
-            sizes.push(14);
+    for (const [k, v] of Object.entries(data)) {
+        if (k === "Portfolio") {
+            labels.push("PORTFOLIO"); risks.push(-v.Normal95*100); returns.push(v.ExpReturn*100); colors.push("rgba(255,0,0,0.9)"); sizes.push(14);
         } else {
-            labels.push(sym);
-            colors.push("rgba(245, 166, 35, 0.7)");
-            sizes.push(9);
+            labels.push(k); risks.push(-v.Normal95*100); returns.push(v.ExpReturn*100); colors.push("rgba(245,166,35,0.7)"); sizes.push(9);
         }
-        risks.push(risk);
-        returns.push(ret);
     }
-
     if (riskChart) riskChart.destroy();
-
     riskChart = new Chart(ctx, {
         type: "scatter",
-        data: {
-            datasets: [{
-                data: labels.map((l, i) => ({ x: risks[i], y: returns[i], label: l })),
-                backgroundColor: colors,
-                borderColor: colors.map(c => c.replace("0.7", "1").replace("0.9", "1")),
-                borderWidth: 2,
-                pointRadius: sizes
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                tooltip: {
-                    callbacks: {
-                        label: ctx => `${ctx.raw.label}: Risk ${ctx.raw.x.toFixed(3)}%, Return ${ctx.raw.y.toFixed(2)}%`
-                    }
-                },
-                legend: { display: false }
-            },
-            scales: {
-                x: { title: { display: true, text: "1-Day VaR 95% (Loss %)", color: "#fff" }, ticks: { color: "#fff" }, grid: { color: "#333" } },
-                y: { title: { display: true, text: "Expected Annual Return (%)", color: "#fff" }, ticks: { color: "#fff" }, grid: { color: "#333" } }
-            }
-        }
+        data: { datasets: [{ data: labels.map((l,i)=>({x:risks[i],y:returns[i],label:l})), backgroundColor: colors, borderWidth: 2, pointRadius: sizes }] },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { title: { display: true, text: "1-Day VaR 95% (Loss %)" } }, y: { title: { display: true, text: "Expected Annual Return (%)" } } } }
     });
 }
 
-// === SHOW PRICES ===
+// === PRICES ===
 showPricesBtn.addEventListener("click", async () => {
-    if (portfolio.length === 0) {
-        priceData.innerHTML = "<p>No securities.</p>";
-        return;
-    }
-    priceData.innerHTML = "<p>Fetching prices...</p>";
+    if (portfolio.length === 0) return priceData.innerHTML = "<p>No securities.</p>";
+    priceData.innerHTML = "<p>Fetching...</p>";
     const symbols = portfolio.map(p => p.symbol);
-
     try {
         const result = await window.pyodide.runPythonAsync(`
             import yfinance as yf
             import json
-            data = yf.download(${JSON.stringify(symbols)}, period="3mo", progress=False)["Adj Close"]
-            data = data.tail(30).round(2)
-            json.dumps({
-                "dates": data.index.strftime("%Y-%m-%d").tolist(),
-                "values": data.values.tolist(),
-                "columns": data.columns.tolist()
-            })
+            data = yf.download(${JSON.stringify(symbols)}, period="3mo", progress=False)["Adj Close"].tail(30).round(2)
+            json.dumps({"index": data.index.strftime("%Y-%m-%d").tolist(), "data": data.values.tolist(), "columns": data.columns.tolist()})
         `);
-        const { dates, values, columns } = JSON.parse(result);
-
-        let html = "<table border='1'><tr><th>Date</th>";
-        columns.forEach(col => html += `<th>${col}</th>`);
-        html += "</tr>";
-
-        values.forEach((row, i) => {
-            html += `<tr><td>${dates[i]}</td>`;
-            row.forEach(val => html += `<td>${val !== null ? val : "N/A"}</td>`);
-            html += "</tr>";
+        const { index, data, columns } = JSON.parse(result);
+        let html = `<table border="1"><tr><th>Date</th>${columns.map(c => "<th>" + c + "</th>").join("")}</tr>`;
+        data.forEach((row, i) => {
+            html += `<tr><td>${index[i]}</td>${row.map(v => "<td>" + (v ?? "N/A") + "</td>").join("")}</tr>`;
         });
-        html += "</table>";
+        html += `</table>`;
         priceData.innerHTML = html;
     } catch (err) {
-        priceData.innerHTML = `<p style='color:red;'>Failed to load prices.</p>`;
+        priceData.innerHTML = `<p style='color:red;'>Failed.</p>`;
         console.error(err);
     }
 });
