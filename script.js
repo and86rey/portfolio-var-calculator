@@ -30,7 +30,7 @@ async function loadPyodideAndModule() {
     `);
 
     // Load the var_calculator.py module from GitHub
-    const moduleUrl = "https://raw.githubusercontent.com/YOUR-USERNAME/portfolio-var-calculator/main/var_calculator.py";
+    const moduleUrl = "https://raw.githubusercontent.com/and86rey/portfolio-var-calculator/main/var_calculator.py";
     const response = await fetch(moduleUrl);
     const pyCode = await response.text();
     pyodide.runPython(pyCode);
