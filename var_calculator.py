@@ -11,7 +11,7 @@ Features:
 - Imported by Pyodide in browser
 
 Author: [Your Name]
-GitHub: https://github.com/YOUR-USERNAME/portfolio-var-calculator
+GitHub: https://github.com/and86rey/portfolio-var-calculator
 """
 
 import numpy as np
