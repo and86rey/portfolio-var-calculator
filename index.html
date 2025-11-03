@@ -65,10 +65,11 @@
 
         <button id="calculateVar">Calculate VaR</button>
 
-        <div id="varResult">
-            <h2>Portfolio VaR Results</h2>
-            <div id="resultsTable"></div>
-        </div>
+        <!-- RESULTS SECTION -->
+        <h2>Portfolio VaR Results</h2>
+            <div id="loadingSpinner" style="display:none; text-align:center; margin:20px 0;"></div>
+            <div id="resultsTable" style="margin:15px 0;"></div>
+        <canvas id="chart" height="300" style="margin:20px 0; background:#111; border-radius:8px;"></canvas>
 
         <h2>Risk-Return Chart</h2>
         <div class="chart-container">
