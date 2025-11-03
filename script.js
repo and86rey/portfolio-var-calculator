@@ -35,7 +35,7 @@ async function loadPyodideAndModule() {
         `);
 
         console.log("Fetching var_calculator.py...");
-        const moduleUrl = "https://raw.githubusercontent.com/YOUR-USERNAME/portfolio-var-calculator/main/var_calculator.py";
+        const moduleUrl = "https://raw.githubusercontent.com/and86rey/portfolio-var-calculator/main/var_calculator.py";
         const response = await fetch(moduleUrl);
         if (!response.ok) throw new Error("Failed to load Python module (404 or network)");
         const pyCode = await response.text();
