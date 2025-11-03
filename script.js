@@ -1,5 +1,5 @@
 // script.js — MINIMAL, WORKING, NO PYODIDE
-const API_URL = "https://portfolio-var-backend.onrender.com"; // ← YOUR BACKEND
+const API_URL = "https://portfolio-var-calculator.onrender.com"; // ← YOUR BACKEND
 
 let portfolio = [];
 
