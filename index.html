@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio VaR Calculator</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Pyodide (Python in the browser) -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Portfolio VaR Calculator</h1>
+
+        <div class="description">
+            <p>Build a portfolio (up to 5 securities) and calculate <b>Value at Risk (VaR)</b> using:</p>
+            <ul>
+                <li><b>Normal VaR</b> – normal distribution</li>
+                <li><b>Historical VaR</b> – real past returns</li>
+                <li><b>Monte Carlo VaR</b> – simulated paths</li>
+                <li><b>Cornish-Fisher VaR</b> – skewness & kurtosis adjustment</li>
+            </ul>
+            <p><b>Expected annual return</b> is derived from historical data.</p>
+            <p><i>Runs 100% in your browser – no server, no API key!</i></p>
+        </div>
+
+        <div class="search-section">
+            <input type="text" id="searchInput" placeholder="Enter ticker (e.g. AAPL, MSFT)">
+            <button id="searchButton">Search</button>
+            <div id="searchResults"></div>
+        </div>
+
+        <h2>Your Portfolio</h2>
+        <table border="1">
+            <thead>
+                <tr><th>Security</th><th>Weight (%)</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="portfolioTable"></tbody>
+        </table>
+
+        <button id="calculateVar">Calculate VaR</button>
+
+        <div id="varResult">
+            <h2>Portfolio VaR Results</h2>
+            <div id="resultsTable"></div>
+        </div>
+
+        <h2>Historical Prices</h2>
+        <button id="showPrices">Show Prices</button>
+        <div id="priceData"></div>
+
+        <div class="disclaimer">
+            <h3>Disclaimer</h3>
+            <p>Data from <a href="https://finance.yahoo.com" target="_blank">Yahoo Finance</a>. For educational use only.</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
