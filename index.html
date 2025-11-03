@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="styles.css">
     <!-- Pyodide (Python in the browser) -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+    <!-- Chart.js for Risk-Return Chart -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
@@ -25,9 +27,17 @@
         </div>
 
         <div class="search-section">
-            <input type="text" id="searchInput" placeholder="Enter ticker (e.g. AAPL, MSFT)">
+            <input 
+                type="text" 
+                id="searchInput" 
+                placeholder="Enter ticker (e.g. AAPL, MSFT)" 
+                onkeypress="if(event.key==='Enter') document.getElementById('searchButton').click()"
+            >
             <button id="searchButton">Search</button>
             <div id="searchResults"></div>
+            <div id="loadingSpinner" style="display:none; text-align:center; margin:15px 0; color:#f5a623; font-weight:bold;">
+                Python engine loading... (first time: 15–30 sec)
+            </div>
         </div>
 
         <h2>Your Portfolio</h2>
@@ -43,6 +53,11 @@
         <div id="varResult">
             <h2>Portfolio VaR Results</h2>
             <div id="resultsTable"></div>
+        </div>
+
+        <h2>Risk-Return Chart</h2>
+        <div class="chart-container">
+            <canvas id="riskReturnChart"></canvas>
         </div>
 
         <h2>Historical Prices</h2>
