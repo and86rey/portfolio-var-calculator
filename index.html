@@ -4,10 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portfolio VaR Calculator</title>
+
+    <!-- === FAVICON & META === -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>Chart</text></svg>">
+    <meta name="description" content="Free Portfolio VaR Calculator – 100% in browser, no login. 4 methods: Normal, Historical, Monte Carlo, Cornish-Fisher.">
+
+    <!-- === BASE URL FOR GITHUB PAGES === -->
+    <base href="https://and86rey.github.io/portfolio-var-calculator/">
+    <script>
+        // Force HTTPS
+        if (location.protocol !== 'https:') {
+            location.replace('https:' + window.location.href.substring(window.location.protocol.length));
+        }
+    </script>
+
+    <!-- === STYLES === -->
     <link rel="stylesheet" href="styles.css">
-    <!-- Pyodide (Python in the browser) -->
+
+    <!-- === PYODIDE + CHART.JS === -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
-    <!-- Chart.js for Risk-Return Chart -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -36,7 +51,7 @@
             <button id="searchButton">Search</button>
             <div id="searchResults"></div>
             <div id="loadingSpinner" style="display:none; text-align:center; margin:15px 0; color:#f5a623; font-weight:bold;">
-                Python engine loading... (first time: 15–30 sec)
+                Python engine loading... (first time: 20–40 sec)
             </div>
         </div>
 
@@ -68,8 +83,14 @@
             <h3>Disclaimer</h3>
             <p>Data from <a href="https://finance.yahoo.com" target="_blank">Yahoo Finance</a>. For educational use only.</p>
         </div>
+
+        <!-- === SHARE LINK === -->
+        <div style="text-align:center; margin:30px 0; font-size:0.9em;">
+            <a href="https://and86rey.github.io/portfolio-var-calculator" style="color:#f5a623; text-decoration:none;">Share this tool</a>
+        </div>
     </div>
 
+    <!-- === MAIN SCRIPT === -->
     <script src="script.js"></script>
 </body>
 </html>
