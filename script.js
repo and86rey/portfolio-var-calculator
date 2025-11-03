@@ -12,36 +12,48 @@ const calculateVarBtn = document.getElementById("calculateVar");
 const resultsTable = document.getElementById("resultsTable");
 const showPricesBtn = document.getElementById("showPrices");
 const priceData = document.getElementById("priceData");
+const loadingSpinner = document.getElementById("loadingSpinner");
 
-// === Initialize Pyodide + Import Python Module ===
+// === Initialize Pyodide + Import Python Module (FIXED) ===
 async function loadPyodideAndModule() {
     if (pyodideReady) return;
 
-    const pyodide = await loadPyodide();
-    await pyodide.loadPackage("micropip");
-    
-    // Install required packages
-    await pyodide.runPythonAsync(`
-        import micropip
-        await micropip.install("yfinance")
-        await micropip.install("pandas")
-        await micropip.install("numpy")
-        await micropip.install("scipy")
-    `);
+    try {
+        console.log("Loading Pyodide...");
+        loadingSpinner.style.display = "block";
+        const pyodide = await loadPyodide();
+        await pyodide.loadPackage("micropip");
+        
+        console.log("Installing packages (yfinance, pandas, numpy, scipy)...");
+        await pyodide.runPythonAsync(`
+            import micropip
+            await micropip.install("yfinance==0.2.40")  # Lightweight version
+            await micropip.install("pandas")
+            await micropip.install("numpy")
+            await micropip.install("scipy")
+            print("All packages installed")
+        `);
 
-    // Load the var_calculator.py module from GitHub
-    const moduleUrl = "https://raw.githubusercontent.com/and86rey/portfolio-var-calculator/main/var_calculator.py";
-    const response = await fetch(moduleUrl);
-    const pyCode = await response.text();
-    pyodide.runPython(pyCode);
+        console.log("Fetching var_calculator.py...");
+        const moduleUrl = "https://raw.githubusercontent.com/YOUR-USERNAME/portfolio-var-calculator/main/var_calculator.py";
+        const response = await fetch(moduleUrl);
+        if (!response.ok) throw new Error("Failed to load Python module (404 or network)");
+        const pyCode = await response.text();
+        pyodide.runPython(pyCode);
+        console.log("var_calculator.py loaded and executed");
 
-    window.pyodide = pyodide;
-    pyodideReady = true;
-    console.log("Pyodide + var_calculator.py loaded");
+        window.pyodide = pyodide;
+        pyodideReady = true;
+        loadingSpinner.style.display = "none";
+        console.log("Pyodide READY!");
+    } catch (error) {
+        console.error("Pyodide setup failed:", error);
+        loadingSpinner.innerHTML = `<span style="color:red;">Error: ${error.message}</span>`;
+    }
 }
 loadPyodideAndModule();
 
-// === Search Security ===
+// === Search Security (FIXED with timeout) ===
 searchButton.addEventListener("click", () => {
     const query = searchInput.value.trim().toUpperCase();
     if (!query) return;
@@ -50,9 +62,14 @@ searchButton.addEventListener("click", () => {
 });
 
 async function searchYahooFinance(ticker) {
+    let attempts = 0;
+    const maxAttempts = 15; // ~15s max wait
+    while (!pyodideReady && attempts < maxAttempts) {
+        await new Promise(r => setTimeout(r, 1000));
+        attempts++;
+    }
     if (!pyodideReady) {
-        searchResults.innerHTML = "<p>Python engine loading... please wait.</p>";
-        setTimeout(() => searchYahooFinance(ticker), 1000);
+        searchResults.innerHTML = "<p style='color:red;'>Timeout: Python engine failed to load. Refresh.</p>";
         return;
     }
 
@@ -62,9 +79,11 @@ async function searchYahooFinance(ticker) {
             import json
             t = yf.Ticker("${ticker}")
             info = t.info
+            if not info or "symbol" not in info:
+                raise ValueError("No data")
             data = {
-                "symbol": info.get("symbol", "${ticker}"),
-                "name": info.get("longName") or info.get("shortName") or "${ticker}",
+                "symbol": info["symbol"],
+                "name": info.get("longName") or info.get("shortName") or ticker,
                 "price": info.get("currentPrice") or info.get("regularMarketPrice") or "N/A"
             }
             json.dumps(data)
@@ -72,7 +91,7 @@ async function searchYahooFinance(ticker) {
         const stock = JSON.parse(result);
         displaySearchResult(stock);
     } catch (err) {
-        searchResults.innerHTML = `<p>Error: Invalid ticker. Try AAPL, MSFT.</p>`;
+        searchResults.innerHTML = `<p style='color:red;'>Invalid ticker or data error. Try MSFT.</p>`;
         console.error(err);
     }
 }
@@ -138,7 +157,7 @@ calculateVarBtn.addEventListener("click", async () => {
         const result = JSON.parse(resultJson);
         displayVaRResults(result);
     } catch (err) {
-        resultsTable.innerHTML = "<p>Error. Check console.</p>";
+        resultsTable.innerHTML = "<p style='color:red;'>Calculation error. Check console.</p>";
         console.error(err);
     }
 });
@@ -175,8 +194,6 @@ function displayVaRResults(data) {
     }
     html += `</table>`;
     resultsTable.innerHTML = html;
-
-    // Generate Chart
     createRiskReturnChart(data);
 }
 
@@ -237,22 +254,26 @@ showPricesBtn.addEventListener("click", async () => {
     }
     priceData.innerHTML = "<p>Fetching prices...</p>";
     const symbols = portfolio.map(p => p.symbol);
-    const prices = await window.pyodide.runPythonAsync(`
-        import yfinance as yf
-        import json
-        data = yf.download(${JSON.stringify(symbols)}, period="3mo", progress=False)["Adj Close"]
-        data = data.tail(30).round(2)
-        json.dumps({"index": data.index.strftime('%Y-%m-%d').tolist(), "data": data.values.tolist()})
-    `);
-    const df = JSON.parse(prices);
-    let html = `<table border="1"><tr><th>Date</th>`;
-    symbols.forEach(s => html += `<th>${s}</th>`);
-    html += `</tr>`;
-    df.data.forEach((row, i) => {
-        html += `<tr><td>${df.index[i]}</td>`;
-        row.forEach(v => html += `<td>${v !== null ? v : 'N/A'}</td>`);
+    try {
+        const prices = await window.pyodide.runPythonAsync(`
+            import yfinance as yf
+            import json
+            data = yf.download(${JSON.stringify(symbols)}, period="3mo", progress=False)["Adj Close"]
+            data = data.tail(30).round(2)
+            json.dumps({"index": data.index.strftime('%Y-%m-%d').tolist(), "data": data.values.tolist()})
+        `);
+        const df = JSON.parse(prices);
+        let html = `<table border="1"><tr><th>Date</th>`;
+        symbols.forEach(s => html += `<th>${s}</th>`);
         html += `</tr>`;
-    });
-    html += `</table>`;
-    priceData.innerHTML = html;
+        df.data.forEach((row, i) => {
+            html += `<tr><td>${df.index[i]}</td>`;
+            row.forEach(v => html += `<td>${v !== null ? v : 'N/A'}</td>`);
+            html += `</tr>`;
+        });
+        html += `</table>`;
+        priceData.innerHTML = html;
+    } catch (err) {
+        priceData.innerHTML = "<p style='color:red;'>Price fetch failed.</p>";
+    }
 });
