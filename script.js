@@ -3,7 +3,7 @@ let portfolio = [];
 let pyodideReady = false;
 let riskChart = null;
 
-// === DOM ===
+// === DOM ELEMENTS ===
 const searchInput = document.getElementById("searchInput");
 const searchButton = document.getElementById("searchButton");
 const searchResults = document.getElementById("searchResults");
@@ -14,32 +14,42 @@ const showPricesBtn = document.getElementById("showPrices");
 const priceData = document.getElementById("priceData");
 const loadingSpinner = document.getElementById("loadingSpinner");
 
-// === LOAD PYODIDE + var_calculator.py FROM jsDelivr ===
+// === LOAD PYODIDE + MODULE ===
 async function loadPyodideAndModule() {
     if (pyodideReady) return;
 
     try {
         console.log("Loading Pyodide...");
         loadingSpinner.style.display = "block";
-        loadingSpinner.innerHTML = "Loading Python... (20-40 sec)";
+        loadingSpinner.innerHTML = "Loading Python engine... (20–40 sec)";
 
         const pyodide = await loadPyodide();
         await pyodide.loadPackage("micropip");
 
-        console.log("Installing yfinance 0.2.38...");
-        await pyodide.runPythonAsync(
-            "import micropip\n" +
-            "await micropip.install('yfinance==0.2.38')\n" +
-            "await micropip.install('pandas')\n" +
-            "await micropip.install('numpy')\n" +
-            "await micropip.install('scipy')\n"
-        );
+        console.log("Installing yfinance + deps...");
+        await pyodide.runPythonAsync(`
+            import micropip
+            await micropip.install("yfinance==0.2.38")
+            await micropip.install("pandas")
+            await micropip.install("numpy")
+            await micropip.install("scipy")
+        `);
 
-        // === LOAD FROM YOUR REPO VIA jsDelivr ===
+        // === PATCH requests.get TO USE CORS PROXY ===
+        await pyodide.runPythonAsync(`
+            import requests
+            original_get = requests.get
+            def proxy_get(url, **kwargs):
+                proxy_url = "https://corsproxy.io/?" + url
+                return original_get(proxy_url, **kwargs)
+            requests.get = proxy_get
+        `);
+
+        // === LOAD var_calculator.py FROM GITHUB ===
         const moduleUrl = "https://cdn.jsdelivr.net/gh/and86rey/portfolio-var-calculator@main/var_calculator.py";
         console.log("Fetching var_calculator.py...");
         const response = await fetch(moduleUrl);
-        if (!response.ok) throw new Error("HTTP " + response.status);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const pyCode = await response.text();
         pyodide.runPython(pyCode);
         console.log("var_calculator.py loaded");
@@ -48,73 +58,81 @@ async function loadPyodideAndModule() {
         pyodideReady = true;
         loadingSpinner.innerHTML = "Ready!";
         setTimeout(() => loadingSpinner.style.display = "none", 1000);
-    } catch (e) {
-        console.error(e);
-        loadingSpinner.innerHTML = "<span style='color:red;'>Error: " + e.message + "</span>";
+    } catch (err) {
+        console.error("Setup failed:", err);
+        loadingSpinner.innerHTML = `<span style="color:red;">Error: ${err.message}</span>`;
     }
 }
 loadPyodideAndModule();
 
-// === SEARCH ===
+// === SEARCH TICKER ===
 searchButton.addEventListener("click", () => {
-    const q = searchInput.value.trim().toUpperCase();
-    if (!q) return;
-    searchResults.innerHTML = "<p>Searching <b>" + q + "</b>...</p>";
-    searchYahooFinance(q);
+    const query = searchInput.value.trim().toUpperCase();
+    if (!query) return;
+    searchResults.innerHTML = `<p>Searching <b>${query}</b>...</p>`;
+    searchYahooFinance(query);
 });
 
 async function searchYahooFinance(ticker) {
     let attempts = 0;
-    while (!pyodideReady && attempts < 40) {
+    while (!pyodideReady && attempts < 60) {
         await new Promise(r => setTimeout(r, 1000));
         attempts++;
     }
     if (!pyodideReady) {
-        searchResults.innerHTML = "<p style='color:red;'>Timeout. Refresh.</p>";
+        searchResults.innerHTML = "<p style='color:red;'>Timeout. Please refresh.</p>";
         return;
     }
 
     try {
-        const result = await window.pyodide.runPythonAsync(
-            "import yfinance as yf\n" +
-            "import json\n" +
-            "t = yf.Ticker('" + ticker + "')\n" +
-            "info = t.fast_info\n" +
-            "data = {\n" +
-            "  'symbol': info.get('symbol', '" + ticker + "'),\n" +
-            "  'name': info.get('longName') or info.get('shortName') or '" + ticker + "',\n" +
-            "  'price': round(info.get('lastPrice') or info.get('regularMarketPrice'), 2) or 'N/A'\n" +
-            "}\n" +
-            "json.dumps(data)"
-        );
+        const result = await window.pyodide.runPythonAsync(`
+            import yfinance as yf
+            import json
+            t = yf.Ticker("${ticker}")
+            info = t.info
+            data = {
+                "symbol": info.get("symbol", "${ticker}"),
+                "name": info.get("longName") or info.get("shortName") or "${ticker}",
+                "price": round(info.get("regularMarketPrice") or info.get("currentPrice") or 0, 2)
+            }
+            json.dumps(data)
+        `);
         const stock = JSON.parse(result);
+        if (!stock.price || stock.price === 0) throw new Error("No price");
         displaySearchResult(stock);
-    } catch (e) {
-        searchResults.innerHTML = "<p style='color:red;'>Invalid ticker.</p>";
-        console.error(e);
+    } catch (err) {
+        searchResults.innerHTML = `<p style='color:red;'>Invalid ticker. Try AAPL, MSFT, GOOGL.</p>`;
+        console.error("Search error:", err);
     }
 }
 
 function displaySearchResult(stock) {
-    searchResults.innerHTML =
-        "<p><b>" + stock.name + "</b> (" + stock.symbol + ") - $" + stock.price + "</p>" +
-        "<input type='number' id='weightInput' placeholder='Weight %' min='1' max='100' style='width:80px;padding:5px;'>" +
-        "<button onclick=\"addToPortfolio('" + stock.symbol + "', '" + stock.name.replace(/'/g, "\\'") + "')\">Add</button>";
+    searchResults.innerHTML = `
+        <p><b>${stock.name}</b> (${stock.symbol}) - $${stock.price}</p>
+        <input type="number" id="weightInput" placeholder="Weight %" min="1" max="100" style="width:80px;padding:5px;">
+        <button onclick="addToPortfolio('${stock.symbol}', '${stock.name.replace(/'/g, "\\'")}')">Add</button>
+    `;
 }
 
-// === PORTFOLIO ===
+// === PORTFOLIO MANAGEMENT ===
 function addToPortfolio(symbol, name) {
-    if (portfolio.length >= 5) { alert("Max 5"); return; }
-    const w = parseFloat(document.getElementById("weightInput").value);
-    if (isNaN(w) || w <= 0 || w > 100) { alert("Weight 1-100%"); return; }
-    portfolio.push({ symbol, name, weight: w });
+    if (portfolio.length >= 5) {
+        alert("Maximum 5 securities allowed.");
+        return;
+    }
+    const weight = parseFloat(document.getElementById("weightInput").value);
+    if (isNaN(weight) || weight <= 0 || weight > 100) {
+        alert("Enter weight between 1 and 100%");
+        return;
+    }
+    portfolio.push({ symbol, name, weight });
     updatePortfolioTable();
     searchResults.innerHTML = "";
     searchInput.value = "";
 }
 
-function removeFromPortfolio(i) {
-    portfolio.splice(i, 1);
+function removeFromPortfolio(index) {
+    portfolio.splice(index, 1);
     updatePortfolioTable();
 }
 
@@ -122,93 +140,175 @@ function updatePortfolioTable() {
     portfolioTable.innerHTML = "";
     portfolio.forEach((item, i) => {
         const row = portfolioTable.insertRow();
-        row.innerHTML = "<td>" + item.name + " (" + item.symbol + ")</td><td>" + item.weight + "%</td>" +
-                        "<td><button onclick='removeFromPortfolio(" + i + ")' style='background:#c33;color:#fff;padding:4px 8px;'>Remove</button></td>";
+        row.innerHTML = `
+            <td>${item.name} (${item.symbol})</td>
+            <td>${item.weight}%</td>
+            <td><button onclick="removeFromPortfolio(${i})" style="background:#c33;color:#fff;padding:4px 8px;font-size:0.8em;">Remove</button></td>
+        `;
     });
 }
 
 // === CALCULATE VAR ===
 calculateVarBtn.addEventListener("click", async () => {
-    if (portfolio.length === 0) { resultsTable.innerHTML = "<p>No securities.</p>"; return; }
-    resultsTable.innerHTML = "<p>Calculating...</p>";
+    if (portfolio.length === 0) {
+        resultsTable.innerHTML = "<p>Add at least one security.</p>";
+        return;
+    }
+    resultsTable.innerHTML = "<p>Calculating VaR... (10–20 sec)</p>";
     try {
         const symbols = portfolio.map(p => p.symbol);
         const weights = portfolio.map(p => p.weight);
-        const result = await window.pyodide.runPythonAsync(
-            "import json\n" +
-            "from var_calculator import calculate_full_portfolio\n" +
-            "result = calculate_full_portfolio(" + JSON.stringify(symbols) + ", " + JSON.stringify(weights) + ")\n" +
-            "json.dumps(result)"
-        );
-        displayVaRResults(JSON.parse(result));
-    } catch (e) {
-        resultsTable.innerHTML = "<p style='color:red;'>Error.</p>";
-        console.error(e);
+
+        const resultJson = await window.pyodide.runPythonAsync(`
+            import json
+            from var_calculator import calculate_full_portfolio
+            result = calculate_full_portfolio(${JSON.stringify(symbols)}, ${JSON.stringify(weights)})
+            json.dumps(result)
+        `);
+
+        const result = JSON.parse(resultJson);
+        displayVaRResults(result);
+    } catch (err) {
+        resultsTable.innerHTML = `<p style='color:red;'>Calculation failed. See console.</p>`;
+        console.error("VaR error:", err);
     }
 });
 
 function displayVaRResults(data) {
-    let html = "<table border='1'><tr><th>Security</th><th>Normal 95%</th><th>Normal 99%</th><th>Hist 95%</th><th>Hist 99%</th><th>MC 95%</th><th>MC 99%</th><th>CF 95%</th><th>CF 99%</th><th>Exp. Return</th></tr>";
-    for (const [k, v] of Object.entries(data)) {
-        html += "<tr><td><b>" + k + "</b></td>" +
-                "<td>" + v.Normal95 + "</td>" +
-                "<td>" + v.Normal99 + "</td>" +
-                "<td>" + v.Hist95 + "</td>" +
-                "<td>" + v.Hist99 + "</td>" +
-                "<td>" + v.MC95 + "</td>" +
-                "<td>" + v.MC99 + "</td>" +
-                "<td>" + v.CF95 + "</td>" +
-                "<td>" + v.CF99 + "</td>" +
-                "<td>" + (v.ExpReturn * 100).toFixed(2) + "%</td></tr>";
+    let html = `
+        <table border="1">
+            <tr>
+                <th>Security</th>
+                <th>Normal 95%</th>
+                <th>Normal 99%</th>
+                <th>Hist 95%</th>
+                <th>Hist 99%</th>
+                <th>MC 95%</th>
+                <th>MC 99%</th>
+                <th>CF 95%</th>
+                <th>CF 99%</th>
+                <th>Exp. Return</th>
+            </tr>
+    `;
+
+    for (const [sym, vals] of Object.entries(data)) {
+        html += `
+            <tr>
+                <td><b>${sym}</b></td>
+                <td>${vals.Normal95}</td>
+                <td>${vals.Normal99}</td>
+                <td>${vals.Hist95}</td>
+                <td>${vals.Hist99}</td>
+                <td>${vals.MC95}</td>
+                <td>${vals.MC99}</td>
+                <td>${vals.CF95}</td>
+                <td>${vals.CF99}</td>
+                <td>${(vals.ExpReturn * 100).toFixed(2)}%</td>
+            </tr>
+        `;
     }
     html += "</table>";
     resultsTable.innerHTML = html;
     createRiskReturnChart(data);
 }
 
-// === CHART ===
+// === RISK-RETURN CHART ===
 function createRiskReturnChart(data) {
     const ctx = document.getElementById("riskReturnChart").getContext("2d");
     const labels = [], risks = [], returns = [], colors = [], sizes = [];
-    for (const [k, v] of Object.entries(data)) {
-        if (k === "Portfolio") {
-            labels.push("PORTFOLIO"); risks.push(-v.Normal95*100); returns.push(v.ExpReturn*100); colors.push("rgba(255,0,0,0.8)"); sizes.push(12);
+
+    for (const [sym, vals] of Object.entries(data)) {
+        const risk = -vals.Normal95 * 100;  // Loss % (positive)
+        const ret = vals.ExpReturn * 100;
+
+        if (sym === "Portfolio") {
+            labels.push("PORTFOLIO");
+            colors.push("rgba(255, 0, 0, 0.9)");
+            sizes.push(14);
         } else {
-            labels.push(k); risks.push(-v.Normal95*100); returns.push(v.ExpReturn*100); colors.push("rgba(245,166,35,0.7)"); sizes.push(8);
+            labels.push(sym);
+            colors.push("rgba(245, 166, 35, 0.7)");
+            sizes.push(9);
         }
+        risks.push(risk);
+        returns.push(ret);
     }
+
     if (riskChart) riskChart.destroy();
+
     riskChart = new Chart(ctx, {
         type: "scatter",
-        data: { datasets: [{ data: labels.map((l,i)=>({x:risks[i],y:returns[i],label:l})), backgroundColor: colors, borderWidth: 2, pointRadius: sizes }] },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { title: { display: true, text: "1-Day VaR 95% (Loss %)" } }, y: { title: { display: true, text: "Expected Annual Return (%)" } } } }
+        data: {
+            datasets: [{
+                data: labels.map((l, i) => ({ x: risks[i], y: returns[i], label: l })),
+                backgroundColor: colors,
+                borderColor: colors.map(c => c.replace("0.7", "1").replace("0.9", "1")),
+                borderWidth: 2,
+                pointRadius: sizes
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: ctx => `${ctx.raw.label}: Risk ${ctx.raw.x.toFixed(3)}%, Return ${ctx.raw.y.toFixed(2)}%`
+                    }
+                },
+                legend: { display: false }
+            },
+            scales: {
+                x: {
+                    title: { display: true, text: "1-Day VaR 95% (Loss %)", color: "#fff" },
+                    ticks: { color: "#fff" },
+                    grid: { color: "#333" }
+                },
+                y: {
+                    title: { display: true, text: "Expected Annual Return (%)", color: "#fff" },
+                    ticks: { color: "#fff" },
+                    grid: { color: "#333" }
+                }
+            }
+        }
     });
 }
 
-// === PRICES ===
+// === SHOW HISTORICAL PRICES ===
 showPricesBtn.addEventListener("click", async () => {
-    if (portfolio.length === 0) { priceData.innerHTML = "<p>No securities.</p>"; return; }
-    priceData.innerHTML = "<p>Fetching...</p>";
+    if (portfolio.length === 0) {
+        priceData.innerHTML = "<p>No securities in portfolio.</p>";
+        return;
+    }
+    priceData.innerHTML = "<p>Fetching prices...</p>";
     const symbols = portfolio.map(p => p.symbol);
+
     try {
-        const result = await window.pyodide.runPythonAsync(
-            "import yfinance as yf\n" +
-            "import json\n" +
-            "data = yf.download(" + JSON.stringify(symbols) + ", period='3mo', progress=False)['Adj Close'].tail(30).round(2)\n" +
-            "json.dumps({'index': data.index.strftime('%Y-%m-%d').tolist(), 'data': data.values.tolist()})"
-        );
-        const df = JSON.parse(result);
+        const result = await window.pyodide.runPythonAsync(`
+            import yfinance as yf
+            import json
+            data = yf.download(${JSON.stringify(symbols)}, period="3mo", progress=False)["Adj Close"]
+            data = data.tail(30).round(2)
+            json.dumps({
+                "dates": data.index.strftime("%Y-%m-%d").tolist(),
+                "values": data.values.tolist(),
+                "columns": data.columns.tolist()
+            })
+        `);
+        const { dates, values, columns } = JSON.parse(result);
+
         let html = "<table border='1'><tr><th>Date</th>";
-        symbols.forEach(s => html += "<th>" + s + "</th>");
+        columns.forEach(col => html += `<th>${col}</th>`);
         html += "</tr>";
-        df.data.forEach((row, i) => {
-            html += "<tr><td>" + df.index[i] + "</td>";
-            row.forEach(v => html += "<td>" + (v !== null ? v : "N/A") + "</td>");
+
+        values.forEach((row, i) => {
+            html += `<tr><td>${dates[i]}</td>`;
+            row.forEach(val => html += `<td>${val !== null ? val : "N/A"}</td>`);
             html += "</tr>";
         });
         html += "</table>";
         priceData.innerHTML = html;
-    } catch (e) {
-        priceData.innerHTML = "<p style='color:red;'>Failed.</p>";
+    } catch (err) {
+        priceData.innerHTML = `<p style='color:red;'>Failed to load prices.</p>`;
+        console.error(err);
     }
 });
