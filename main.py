@@ -8,6 +8,7 @@ from typing import List
 
 app = FastAPI()
 
+# CORS — FULLY ENABLED
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,7 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# FIXED: Explicit OPTIONS route for pre-flight
+# Handle preflight
 @app.options("/{path:path}")
 async def options_handler(path: str):
     return {}
@@ -72,25 +73,51 @@ def get_ticker(ticker: str):
 @app.post("/var")
 def calculate_var(req: PortfolioRequest):
     try:
+        # Validate weights
         weights = np.array(req.weights) / 100
         if not np.isclose(weights.sum(), 1.0):
             raise ValueError("Weights must sum to 100%")
-        data = yf.download(req.symbols, period="1y", progress=False)["Adj Close"]
-        if data.empty:
+
+        # Download data
+        raw = yf.download(req.symbols, period="1y", progress=False)
+        if raw.empty:
             raise ValueError("No price data")
+
+        # === SAFE ADJ CLOSE EXTRACTION ===
+        if len(req.symbols) == 1:
+            # Single ticker → flat column
+            data = raw["Adj Close"] if "Adj Close" in raw.columns else raw["Close"]
+            data = data.to_frame(req.symbols[0])
+        else:
+            # Multiple tickers → multi-level columns
+            if "Adj Close" in raw.columns:
+                data = raw["Adj Close"]
+            else:
+                data = raw.xs("Adj Close", axis=1, level=1)
+        
         data = data.dropna()
+        if data.empty:
+            raise ValueError("No valid price data after cleaning")
+
+        # Calculate log returns
         returns = np.log(data / data.shift(1)).dropna()
         if returns.empty:
             raise ValueError("No returns data")
+
+        # Individual VaR
         results = {}
         for sym in req.symbols:
             if sym in returns.columns:
                 results[sym] = calculate_var_single(returns[sym].values)
             else:
                 results[sym] = {"error": "No data"}
+
+        # Portfolio VaR
         portfolio_returns = returns.dot(weights)
         results["Portfolio"] = calculate_var_single(portfolio_returns.values)
+
         return results
+
     except Exception as e:
         print(f"VaR error: {e}")
         raise HTTPException(status_code=400, detail=f"Calculation failed: {str(e)}")
