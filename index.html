@@ -1,97 +1,160 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Portfolio VaR Calculator</title>
-
-    <!-- === FAVICON & META === -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>Chart</text></svg>">
-    <meta name="description" content="Free Portfolio VaR Calculator – 100% in browser, no login. 4 methods: Normal, Historical, Monte Carlo, Cornish-Fisher.">
-
-    <!-- === BASE URL FOR GITHUB PAGES === -->
-    <base href="https://and86rey.github.io/portfolio-var-calculator/">
-    <script>
-        // Force HTTPS
-        if (location.protocol !== 'https:') {
-            location.replace('https:' + window.location.href.substring(window.location.protocol.length));
-        }
-    </script>
-
-    <!-- === STYLES === -->
-    <link rel="stylesheet" href="styles.css">
-
-    <!-- === PYODIDE + CHART.JS === -->
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portfolio VaR Calculator</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background: #111; color: #eee; margin: 0; padding: 20px; }
+    h1, h2 { color: #f5a623; text-align: center; }
+    .container { max-width: 900px; margin: auto; background: #1a1a1a; padding: 20px; border-radius: 12px; box-shadow: 0 0 15px rgba(245,166,35,0.1); }
+    input, button { padding: 10px; margin: 5px; border-radius: 6px; border: none; }
+    input { background: #333; color: #fff; width: 160px; }
+    button { background: #f5a623; color: #000; font-weight: bold; cursor: pointer; }
+    button:hover { background: #e69500; }
+    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+    th, td { padding: 10px; text-align: center; border: 1px solid #444; }
+    th { background: #f5a623; color: #000; }
+    #loadingSpinner { text-align: center; margin: 20px 0; display: none; }
+    #chart { background: #111; border-radius: 8px; }
+    .section { margin: 25px 0; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Portfolio VaR Calculator</h1>
+  <div class="container">
+    <h1>Portfolio VaR Calculator</h1>
 
-        <div class="description">
-            <p>Build a portfolio (up to 5 securities) and calculate <b>Value at Risk (VaR)</b> using:</p>
-            <ul>
-                <li><b>Normal VaR</b> – normal distribution</li>
-                <li><b>Historical VaR</b> – real past returns</li>
-                <li><b>Monte Carlo VaR</b> – simulated paths</li>
-                <li><b>Cornish-Fisher VaR</b> – skewness & kurtosis adjustment</li>
-            </ul>
-            <p><b>Expected annual return</b> is derived from historical data.</p>
-            <p><i>Runs 100% in your browser – no server, no API key!</i></p>
-        </div>
-
-        <div class="search-section">
-            <input 
-                type="text" 
-                id="searchInput" 
-                placeholder="Enter ticker (e.g. AAPL, MSFT)" 
-                onkeypress="if(event.key==='Enter') document.getElementById('searchButton').click()"
-            >
-            <button id="searchButton">Search</button>
-            <div id="searchResults"></div>
-            <div id="loadingSpinner" style="display:none; text-align:center; margin:15px 0; color:#f5a623; font-weight:bold;">
-                Python engine loading... (first time: 20–40 sec)
-            </div>
-        </div>
-
-        <h2>Your Portfolio</h2>
-        <table border="1">
-            <thead>
-                <tr><th>Security</th><th>Weight (%)</th><th>Actions</th></tr>
-            </thead>
-            <tbody id="portfolioTable"></tbody>
-        </table>
-
-        <button id="calculateVar">Calculate VaR</button>
-
-        <!-- RESULTS SECTION -->
-        <h2>Portfolio VaR Results</h2>
-            <div id="loadingSpinner" style="display:none; text-align:center; margin:20px 0;"></div>
-            <div id="resultsTable" style="margin:15px 0;"></div>
-        <canvas id="chart" height="300" style="margin:20px 0; background:#111; border-radius:8px;"></canvas>
-
-        <h2>Risk-Return Chart</h2>
-        <div class="chart-container">
-            <canvas id="riskReturnChart"></canvas>
-        </div>
-
-        <h2>Historical Prices</h2>
-        <button id="showPrices">Show Prices</button>
-        <div id="priceData"></div>
-
-        <div class="disclaimer">
-            <h3>Disclaimer</h3>
-            <p>Data from <a href="https://finance.yahoo.com" target="_blank">Yahoo Finance</a>. For educational use only.</p>
-        </div>
-
-        <!-- === SHARE LINK === -->
-        <div style="text-align:center; margin:30px 0; font-size:0.9em;">
-            <a href="https://and86rey.github.io/portfolio-var-calculator" style="color:#f5a623; text-decoration:none;">Share this tool</a>
-        </div>
+    <!-- SEARCH -->
+    <div class="section">
+      <h2>Search Ticker</h2>
+      <input type="text" id="searchInput" placeholder="e.g. AAPL" />
+      <button id="searchButton">Search</button>
+      <div id="searchResults"></div>
     </div>
 
-    <!-- === MAIN SCRIPT === -->
-    <script src="script.js"></script>
+    <!-- PORTFOLIO -->
+    <div class="section">
+      <h2>Portfolio</h2>
+      <table id="portfolioTable"></table>
+    </div>
+
+    <!-- CALCULATE -->
+    <div class="section" style="text-align:center;">
+      <button id="calculateVar" style="padding:12px 30px; font-size:1.1em;">Calculate VaR</button>
+      <div id="loadingSpinner">Loading...</div>
+    </div>
+
+    <!-- RESULTS + CHART -->
+    <div class="section">
+      <h2>Portfolio VaR Results</h2>
+      <div id="resultsTable"></div>
+      <canvas id="chart" height="320"></canvas>
+    </div>
+  </div>
+
+  <!-- SCRIPT -->
+  <script>
+    // script.js — FULLY INCLUDED BELOW (no external file needed for testing)
+    const API = "https://portfolio-var-backend.onrender.com";
+
+    let portfolio = [], chart = null;
+    const inp   = document.getElementById("searchInput");
+    const btn   = document.getElementById("searchButton");
+    const res   = document.getElementById("searchResults");
+    const tbl   = document.getElementById("portfolioTable");
+    const calc  = document.getElementById("calculateVar");
+    const out   = document.getElementById("resultsTable");
+    const spin  = document.getElementById("loadingSpinner");
+
+    function loading(txt){ spin.style.display="block"; spin.textContent=txt; }
+    function hide(){ setTimeout(()=>{spin.style.display="none";},400); }
+
+    btn.onclick = async () => {
+      const t = inp.value.trim().toUpperCase(); if(!t) return;
+      loading(`Searching ${t}…`);
+      try{
+        const r = await fetch(`${API}/ticker/${t}`);
+        if(!r.ok) throw await r.json();
+        const d = await r.json();
+        res.innerHTML = `
+          <div style="padding:10px;background:#222;border-radius:6px;margin:8px 0;">
+            <strong>${d.name}</strong> (${d.symbol}) – $${d.price}
+            <input id="w" type="number" min="1" max="100" placeholder="Weight %" style="width:70px;margin-left:8px;">
+            <button onclick="add('${d.symbol}','${d.name.replace(/'/g,"\\'")}')" 
+                    style="margin-left:6px;background:#f5a623;color:#000;border:none;padding:4px 10px;border-radius:4px;">Add</button>
+          </div>`;
+      }catch(e){ res.innerHTML=`<p style="color:#f66;">${e.detail||e}</p>`; }
+      hide();
+    };
+
+    function add(sym,name){
+      const w = parseFloat(document.getElementById("w").value);
+      if(isNaN(w)||w<1||w>100){alert("Weight 1-100%");return;}
+      const ex = portfolio.find(p=>p.symbol===sym);
+      ex? ex.weight=w : portfolio.push({symbol:sym,name,weight:w});
+      drawTable(); res.innerHTML=""; inp.value="";
+    }
+    function remove(i){ portfolio.splice(i,1); drawTable(); }
+
+    function drawTable(){
+      tbl.innerHTML=""; let tot=0;
+      portfolio.forEach((p,i)=>{
+        tot+=p.weight;
+        const tr=tbl.insertRow();
+        tr.innerHTML=`<td>${p.name} (${p.symbol})</td><td>${p.weight}%</td>
+                      <td><button onclick="remove(${i})" 
+                      style="background:#c33;color:#fff;padding:3px 7px;border:none;border-radius:3px;">X</button></td>`;
+      });
+      const ft=tbl.insertRow(); ft.innerHTML=`<td><b>Total</b></td><td><b>${tot.toFixed(1)}%</b></td><td></td>`;
+    }
+
+    calc.onclick = async () => {
+      if(!portfolio.length){ out.innerHTML="<p>Add securities first.</p>"; return; }
+      loading("Calculating VaR…");
+      try{
+        const r = await fetch(`${API}/var`,{
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({symbols:portfolio.map(p=>p.symbol),weights:portfolio.map(p=>p.weight)})
+        });
+        if(!r.ok) throw await r.json();
+        const d = await r.json();
+        renderTable(d);
+        renderChart(d);
+      }catch(e){ out.innerHTML=`<p style="color:#f66;">${e.detail||e}</p>`; }
+      hide();
+    };
+
+    function renderTable(data){
+      let h=`<table border=1 style="width:100%;margin:12px 0;border-collapse:collapse;">
+             <tr style="background:#f5a623;color:#000;"><th>Security</th><th>Normal 95%</th>
+             <th>Hist 95%</th><th>MC 95%</th><th>CF 95%</th><th>Exp Return</th></tr>`;
+      for(const [k,v] of Object.entries(data)){
+        const bold = k==="Portfolio" ? "style='font-weight:bold;color:#f5a623'" : "";
+        h+=`<tr><td ${bold}><b>${k}</b></td>
+             <td>${v.Normal95}</td><td>${v.Hist95}</td><td>${v.MC95}</td>
+             <td>${v.CF95}</td><td>${(v.ExpReturn*100).toFixed(2)}%</td></tr>`;
+      }
+      out.innerHTML = h+"</table>";
+    }
+
+    function renderChart(data){
+      const ctx = document.getElementById("chart")?.getContext("2d");
+      if(!ctx) return;
+      const pts=[], col=[], sz=[];
+      for(const [k,v] of Object.entries(data)){
+        pts.push({x: -v.Normal95*100, y: v.ExpReturn*100, label:k==="Portfolio"?"PORTFOLIO":k});
+        col.push(k==="Portfolio"?"#ff0000":"#f5a623");
+        sz.push(k==="Portfolio"?12:8);
+      }
+      if(chart) chart.destroy();
+      chart = new Chart(ctx,{
+        type:"scatter", data:{datasets:[{data:pts, backgroundColor:col, pointRadius:sz}]},
+        options:{responsive:true, plugins:{legend:{display:false}},
+                 scales:{x:{title:{display:true,text:"VaR 95% loss (%)"}}, 
+                         y:{title:{display:true,text:"Exp. annual return (%)"}}}}
+      });
+    }
+  </script>
 </body>
 </html>
