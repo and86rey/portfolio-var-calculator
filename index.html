@@ -177,6 +177,71 @@
                          y:{title:{display:true,text:"Exp. annual return (%)"}}}}
       });
     }
+  // === STRESS TEST LAB ===
+const stressBtn = document.getElementById("runStress");
+const stressRes = document.getElementById("stressResults");
+const stressSection = document.getElementById("stressSection");
+
+if (stressBtn) {
+  stressBtn.onclick = async () => {
+    if (!portfolio.length) {
+      alert("Build a portfolio first!");
+      return;
+    }
+    stressBtn.disabled = true;
+    stressBtn.textContent = "Running...";
+    stressRes.innerHTML = "<p style='color:#aaa;'>Simulating shocks...</p>";
+
+    try {
+      const payload = {
+        symbols: portfolio.map(p => p.symbol),
+        weights: portfolio.map(p => p.weight)
+      };
+      const r = await fetch(`${API}/cvar-stress`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!r.ok) throw await r.json();
+      const d = await r.json();
+
+      let html = `<div style="font-weight:bold; color:#fff; margin-bottom:10px;">
+                    Baseline CVaR: ${(d.baseline.CF95 * 100).toFixed(2)}%
+                  </div>`;
+
+      for (const [name, val] of Object.entries(d.stress)) {
+        const change = val["Change (%)"];
+        const barWidth = Math.min(Math.abs(change), 100);
+        const isLoss = change > 0;
+        html += `
+          <div class="stress-card">
+            <div class="stress-name">${name}</div>
+            <div class="stress-cvar">${(val.CVaR * 100).toFixed(2)}% CVaR</div>
+            <div class="stress-change">
+              ${isLoss ? "↑" : "↓"} ${Math.abs(change).toFixed(1)}% vs baseline
+            </div>
+            <div class="impact-bar">
+              <div class="impact-fill" style="width:${barWidth}%; background:${isLoss ? '#ff6b6b' : '#4ecdc4'};"></div>
+            </div>
+            <div class="stress-hedge">Hedge: ${val.Hedge}</div>
+          </div>`;
+      }
+      stressRes.innerHTML = html;
+    } catch (e) {
+      stressRes.innerHTML = `<p style="color:#f66;">Error: ${e.detail || e}</p>`;
+    } finally {
+      stressBtn.disabled = false;
+      stressBtn.textContent = "Run Stress Test";
+    }
+  };
+}
+
+// SHOW STRESS LAB AFTER VaR
+const originalCalc = calc.onclick;
+calc.onclick = async () => {
+  if (originalCalc) await originalCalc();
+  stressSection.style.display = "block";
+};
   </script>
 </body>
 </html>
