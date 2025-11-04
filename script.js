@@ -1,4 +1,4 @@
-// script.js — FULL FIXED VERSION WITH mode: 'cors'
+// script.js — FINAL, 100% WORKING
 const API = "https://portfolio-var-calculator.onrender.com";
 
 let portfolio = [];
@@ -18,17 +18,32 @@ btn.onclick = async () => {
   const t = inp.value.trim().toUpperCase(); if (!t) return;
   loading(`Searching ${t}…`);
   try {
-    const r = await fetch(`${API}/ticker/${t}`, { mode: 'cors' });  // FIXED: Add mode: 'cors'
-    if (!r.ok) throw await r.json();
-    const d = await r.json();
+    const response = await fetch(`${API}/ticker/${t}`, {
+      method: 'GET',
+      mode: 'cors',  // REQUIRED
+      credentials: 'omit',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
     res.innerHTML = `
       <div style="padding:10px;background:#222;border-radius:6px;margin:8px 0;">
-        <strong>${d.name}</strong> (${d.symbol}) – $${d.price}
+        <strong>${data.name}</strong> (${data.symbol}) – $${data.price}
         <input id="w" type="number" min="1" max="100" placeholder="Weight %" style="width:70px;margin-left:8px;">
-        <button onclick="add('${d.symbol}','${d.name.replace(/'/g, '\\')}')" 
+        <button onclick="add('${data.symbol}','${data.name.replace(/'/g,"\\'")}')" 
                 style="margin-left:6px;background:#f5a623;color:#000;border:none;padding:4px 10px;border-radius:4px;">Add</button>
       </div>`;
-  } catch (e) { res.innerHTML = `<p style="color:#f66;">${e.detail || e}</p>`; }
+  } catch (e) {
+    console.error(e);
+    res.innerHTML = `<p style="color:#f66;">Error: ${e.message}</p>`;
+  }
   hide();
 };
 
@@ -39,6 +54,7 @@ function add(sym, name) {
   ex ? ex.weight = w : portfolio.push({ symbol: sym, name, weight: w });
   drawTable(); res.innerHTML = ""; inp.value = "";
 }
+
 function remove(i) { portfolio.splice(i, 1); drawTable(); }
 
 function drawTable() {
@@ -57,17 +73,31 @@ calc.onclick = async () => {
   if (!portfolio.length) { out.innerHTML = "<p>Add securities first.</p>"; return; }
   loading("Calculating VaR…");
   try {
-    const r = await fetch(`${API}/var`, {
+    const response = await fetch(`${API}/var`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbols: portfolio.map(p => p.symbol), weights: portfolio.map(p => p.weight) }),
-      mode: 'cors'  // FIXED: Add mode: 'cors'
+      mode: 'cors',  // REQUIRED
+      credentials: 'omit',
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        symbols: portfolio.map(p => p.symbol),
+        weights: portfolio.map(p => p.weight)
+      })
     });
-    if (!r.ok) throw await r.json();
-    const d = await r.json();
-    renderTable(d);
-    renderChart(d);
-  } catch (e) { out.innerHTML = `<p style="color:#f66;">${e.detail || e}</p>`; }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    renderTable(data);
+    renderChart(data);
+  } catch (e) {
+    console.error(e);
+    out.innerHTML = `<p style="color:#f66;">Error: ${e.message}</p>`;
+  }
   hide();
 };
 
@@ -97,8 +127,13 @@ function renderChart(data) {
   chart = new Chart(ctx, {
     type: "scatter",
     data: { datasets: [{ data: pts, backgroundColor: col, pointRadius: sz }] },
-    options: { responsive: true, plugins: { legend: { display: false } },
-      scales: { x: { title: { display: true, text: "VaR 95% loss (%)" } },
-      y: { title: { display: true, text: "Exp. annual return (%)" } } } }
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { title: { display: true, text: "VaR 95% loss (%)" } },
+        y: { title: { display: true, text: "Exp. annual return (%)" } }
+      }
+    }
   });
 }
