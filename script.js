@@ -1,5 +1,5 @@
 // script.js — FINAL, 100% WORKING
-const API = "https://portfolio-var-calculator.onrender.com";
+const API = "https://corsproxy.io/?https://portfolio-var-calculator.onrender.com";
 
 let portfolio = [];
 let chart = null;
