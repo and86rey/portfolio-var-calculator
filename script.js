@@ -1,4 +1,4 @@
-// script.js — FINAL, 100% WORKING
+// script.js — FINAL, WORKING, WITH PROXY PARSE
 const API = "https://corsproxy.io/?https://portfolio-var-calculator.onrender.com";
 
 let portfolio = [];
@@ -18,30 +18,18 @@ btn.onclick = async () => {
   const t = inp.value.trim().toUpperCase(); if (!t) return;
   loading(`Searching ${t}…`);
   try {
-    const response = await fetch(`${API}/ticker/${t}`, {
-      method: 'GET',
-      mode: 'cors',  // REQUIRED
-      credentials: 'omit',
-      headers: {
-        'Accept': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-
-    const data = await response.json();
+    const proxy = await fetch(`${API}/ticker/${t}`);
+    if (!proxy.ok) throw new Error(`HTTP ${proxy.status}`);
+    const proxyData = await proxy.json();
+    const d = JSON.parse(proxyData.contents);  // FIXED: Parse proxy "contents"
     res.innerHTML = `
       <div style="padding:10px;background:#222;border-radius:6px;margin:8px 0;">
-        <strong>${data.name}</strong> (${data.symbol}) – $${data.price}
+        <strong>${d.name}</strong> (${d.symbol}) – $${d.price}
         <input id="w" type="number" min="1" max="100" placeholder="Weight %" style="width:70px;margin-left:8px;">
-        <button onclick="add('${data.symbol}','${data.name.replace(/'/g,"\\'")}')" 
+        <button onclick="add('${d.symbol}','${d.name.replace(/'/g,"\\'")}')" 
                 style="margin-left:6px;background:#f5a623;color:#000;border:none;padding:4px 10px;border-radius:4px;">Add</button>
       </div>`;
   } catch (e) {
-    console.error(e);
     res.innerHTML = `<p style="color:#f66;">Error: ${e.message}</p>`;
   }
   hide();
@@ -73,29 +61,18 @@ calc.onclick = async () => {
   if (!portfolio.length) { out.innerHTML = "<p>Add securities first.</p>"; return; }
   loading("Calculating VaR…");
   try {
-    const response = await fetch(`${API}/var`, {
+    const payload = JSON.stringify({symbols:portfolio.map(p=>p.symbol),weights:portfolio.map(p=>p.weight)});
+    const proxy = await fetch(`${API}/var`, {
       method: "POST",
-      mode: 'cors',  // REQUIRED
-      credentials: 'omit',
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        symbols: portfolio.map(p => p.symbol),
-        weights: portfolio.map(p => p.weight)
-      })
+      headers: { "Content-Type": "application/json" },
+      body: payload
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-
-    const data = await response.json();
-    renderTable(data);
-    renderChart(data);
+    if (!proxy.ok) throw new Error(`HTTP ${proxy.status}`);
+    const proxyData = await proxy.json();
+    const d = JSON.parse(proxyData.contents);  // FIXED: Parse proxy "contents"
+    renderTable(d);
+    renderChart(d);
   } catch (e) {
-    console.error(e);
     out.innerHTML = `<p style="color:#f66;">Error: ${e.message}</p>`;
   }
   hide();
