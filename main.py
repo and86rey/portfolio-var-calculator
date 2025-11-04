@@ -15,6 +15,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# FIXED: Explicit OPTIONS route for pre-flight
+@app.options("/{path:path}")
+async def options_handler(path: str):
+    return {}
+
 class PortfolioRequest(BaseModel):
     symbols: List[str]
     weights: List[float]
@@ -48,12 +53,10 @@ def home():
 @app.get("/ticker/{ticker}")
 def get_ticker(ticker: str):
     try:
-        # FIXED: Use history — works for ALL tickers (AAPL, MSFT, GOOG)
         hist = yf.download(ticker.upper(), period="5d", progress=False)
         if hist.empty:
             raise ValueError("No data")
         price = hist["Close"].iloc[-1]
-        # Name from info (fallback if empty)
         ticker_obj = yf.Ticker(ticker.upper())
         info = ticker_obj.info
         name = info.get("longName") or info.get("shortName") or ticker.upper()
