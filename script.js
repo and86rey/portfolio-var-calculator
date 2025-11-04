@@ -1,5 +1,5 @@
-// script.js  (copy-paste the whole file)
-const API = "https://portfolio-var-backend.onrender.com";
+// script.js — FINAL, WORKING, CORRECT BACKEND URL
+const API = "https://portfolio-var-calculator.onrender.com";  // ← CORRECT URL
 
 let portfolio = [], chart = null;
 const inp   = document.getElementById("searchInput");
