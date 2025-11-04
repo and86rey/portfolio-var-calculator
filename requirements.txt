@@ -3,5 +3,4 @@ uvicorn[standard]
 yfinance
 numpy
 scipy
-pandas
 pydantic
