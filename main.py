@@ -4,11 +4,10 @@ import yfinance as yf
 import numpy as np
 from scipy.stats import norm, skew, kurtosis
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List
 
 app = FastAPI()
 
-# CORS — FULLY ENABLED
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,7 +15,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Handle preflight
 @app.options("/{path:path}")
 async def options_handler(path: str):
     return {}
@@ -25,33 +23,20 @@ class PortfolioRequest(BaseModel):
     symbols: List[str]
     weights: List[float]
 
-def calculate_var_single(returns: np.ndarray) -> Dict[str, float]:
-    """Calculate Normal, Historical, MC, and Cornish-Fisher VaR + Expected Return."""
+def calculate_var_single(returns):
     if len(returns) < 2:
-        return {"Normal95": 0.0, "Hist95": 0.0, "MC95": 0.0, "CF95": 0.0, "ExpReturn": 0.0}
-    
+        return {"Normal95": 0, "Hist95": 0, "MC95": 0, "CF95": 0, "ExpReturn": 0}
     mean, std = returns.mean(), returns.std()
-    s = skew(returns) if len(returns) > 3 else 0.0
-    k = kurtosis(returns, fisher=True) if len(returns) > 4 else 3.0
+    s = skew(returns) if len(returns) > 3 else 0
+    k = kurtosis(returns, fisher=True) if len(returns) > 4 else 3
     z95 = norm.ppf(0.05)
-    
-    # Normal VaR
     var95 = mean + z95 * std
-    
-    # Historical VaR
     hist95 = np.percentile(returns, 5)
-    
-    # Monte Carlo VaR
     sims = np.random.normal(mean, std, 10000)
     mc95 = np.percentile(sims, 5)
-    
-    # Cornish-Fisher Expansion
-    cf95 = z95 + (z95**2 - 1) * s / 6 + (z95**3 - 3*z95) * (k - 3) / 24 - (2*z95**3 - 5*z95) * (s**2) / 36
+    cf95 = z95 + (z95**2-1)*s/6 + (z95**3-3*z95)*(k-3)/24 - (2*z95**3-5*z95)*(s**2)/36
     cf_var95 = mean + cf95 * std
-    
-    # Expected Annual Return
     exp_ret = (1 + mean) ** 252 - 1
-    
     return {
         "Normal95": round(var95, 6),
         "Hist95": round(hist95, 6),
@@ -67,7 +52,8 @@ def home():
 @app.get("/ticker/{ticker}")
 def get_ticker(ticker: str):
     try:
-        hist = yf.download(ticker.upper(), period="5-Min", progress=False)
+        # FIXED: Use "5d" — valid period
+        hist = yf.download(ticker.upper(), period="5d", progress=False)
         if hist.empty:
             raise ValueError("No data")
         price = hist["Close"].iloc[-1]
@@ -90,7 +76,7 @@ def calculate_var(req: PortfolioRequest):
         if not np.isclose(weights.sum(), 1.0):
             raise ValueError("Weights must sum to 100%")
 
-        # Download with auto_adjust=True → guarantees "Close" is adjusted
+        # FIXED: Use "Close" with auto_adjust=True
         raw = yf.download(req.symbols, period="1y", progress=False, auto_adjust=True)
         if raw.empty:
             raise ValueError("No price data")
@@ -118,78 +104,8 @@ def calculate_var(req: PortfolioRequest):
 
         portfolio_returns = returns.dot(weights)
         results["Portfolio"] = calculate_var_single(portfolio_returns.values)
-
         return results
 
     except Exception as e:
         print(f"VaR error: {e}")
         raise HTTPException(status_code=400, detail=f"Calculation failed: {str(e)}")
-
-# === DEBT PAID: OUT-OF-BOX FEATURE FOR QAs ===
-@app.post("/cvar-stress")
-def calculate_cvar_stress(req: PortfolioRequest) -> Dict[str, Any]:
-    """
-    Stress-test portfolio with synthetic scenarios + GARCH volatility + CVaR.
-    Returns baseline + 3 shock scenarios with hedge suggestions.
-    """
-    try:
-        weights = np.array(req.weights) / 100
-        if not np.isclose(weights.sum(), 1.0):
-            raise ValueError("Weights must sum to 100%")
-
-        # Baseline returns
-        raw = yf.download(req.symbols, period="1y", progress=False, auto_adjust=True)
-        if raw.empty:
-            raise ValueError("No price data")
-        data = raw["Close"] if len(req.symbols) == 1 else raw["Close"]
-        data = data.dropna()
-        returns = np.log(data / data.shift(1)).dropna()
-        if returns.empty:
-            raise ValueError("No returns data")
-
-        # GARCH(1,1) volatility model (simplified)
-        def garch_vol(returns_series, alpha=0.1, beta=0.85):
-            vol = np.std(returns_series)
-            vols = [vol]
-            for r in returns_series[1:]:
-                vol = np.sqrt((1 - alpha - beta) * vol**2 + alpha * r**2 + beta * vols[-1]**2)
-                vols.append(vol)
-            return np.array(vols)
-
-        # Portfolio baseline
-        portfolio_returns = returns.dot(weights)
-        baseline_cvar = calculate_var_single(portfolio_returns.values)
-
-        # Synthetic Scenarios (out-of-box for QAs)
-        scenarios = [
-            {"name": "Inflation Shock", "mean_shift": 0.15, "vol_mult": 1.8, "hedge": "Add TIPS or gold"},
-            {"name": "Tech Crash", "mean_shift": -0.30, "vol_mult": 2.5, "hedge": "Add VIX futures"},
-            {"name": "AI Bubble Burst", "mean_shift": -0.45, "vol_mult": 3.2, "hedge": "Reduce NVDA, add bonds"}
-        ]
-
-        stress_results = {}
-        avg_vol = garch_vol(portfolio_returns.values)[-1]  # Latest volatility
-
-        for sc in scenarios:
-            # Simulate shocked returns
-            shocked = portfolio_returns + sc["mean_shift"] * avg_vol * sc["vol_mult"]
-            shocked_cvar = calculate_var_single(shocked.values)
-            
-            change_pct = round(
-                (shocked_cvar["CF95"] - baseline_cvar["CF95"]) / abs(baseline_cvar["CF95"]) * 100, 2
-            ) if baseline_cvar["CF95"] != 0 else 0
-
-            stress_results[sc["name"]] = {
-                "CVaR": shocked_cvar["CF95"],
-                "Change (%)": change_pct,
-                "Hedge Suggestion": sc["hedge"]
-            }
-
-        return {
-            "baseline": baseline_cvar,
-            "stress_scenarios": stress_results
-        }
-
-    except Exception as e:
-        print(f"CVaR Stress error: {e}")
-        raise HTTPException(status_code=400, detail=f"Stress test failed: {str(e)}")
