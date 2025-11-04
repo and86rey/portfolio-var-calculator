@@ -1,4 +1,3 @@
-# main.py — FINAL, RENDER-PROVEN, 24/7
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
@@ -7,11 +6,12 @@ from scipy.stats import norm, skew, kurtosis
 from pydantic import BaseModel
 from typing import List
 
-app = FastAPI()
+app = FastAPI(title="Portfolio VaR API", version="1.0")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -46,15 +46,17 @@ def calculate_var_single(returns):
 
 @app.get("/")
 def home():
-    return {"status": "Portfolio VaR Backend LIVE"}
+    return {"message": "Portfolio VaR Backend Live!"}
 
 @app.get("/ticker/{ticker}")
 def get_ticker(ticker: str):
     try:
-        t = yf.Ticker(ticker.upper())
-        info = t.fast_info
-        price = info.get("lastPrice") or info.get("previousClose") or 0
-        name = info.get("longName") or info.get("shortName") or ticker.upper()
+        # Use history for reliable price (works 24/7)
+        hist = yf.download(ticker.upper(), period="1d", progress=False)
+        if hist.empty:
+            return {"error": "No data"}
+        price = hist["Close"].iloc[-1]
+        name = yf.Ticker(ticker.upper()).info.get("longName") or ticker.upper()
         return {
             "symbol": ticker.upper(),
             "name": name,
@@ -71,15 +73,13 @@ def calculate_var(req: PortfolioRequest):
         if not np.isclose(weights.sum(), 1.0):
             return {"error": "Weights must sum to 100%"}
 
-        data = yf.download(req.symbols, period="1y", progress=False, auto_adjust=True)
-        if "Adj Close" not in data.columns:
-            return {"error": "No data"}
-        prices = data["Adj Close"].dropna(how="all")
-        if prices.empty:
-            return {"error": "No valid prices"}
-        returns = np.log(prices / prices.shift(1)).dropna()
+        data = yf.download(req.symbols, period="1y", progress=False)["Adj Close"]
+        if data.empty:
+            return {"error": "No price data"}
+        data = data.dropna()
+        returns = np.log(data / data.shift(1)).dropna()
         if returns.empty:
-            return {"error": "No returns"}
+            return {"error": "No returns data"}
 
         results = {}
         for sym in req.symbols:
@@ -90,6 +90,8 @@ def calculate_var(req: PortfolioRequest):
 
         portfolio_returns = returns.dot(weights)
         results["Portfolio"] = calculate_var_single(portfolio_returns.values)
+
         return results
     except Exception as e:
-        return {"error": f"Calc failed: {str(e)}"}
+        print(f"VaR error: {e}")
+        return {"error": f"Calculation failed: {str(e)}"}
