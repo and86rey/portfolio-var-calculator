@@ -243,5 +243,24 @@ calc.onclick = async () => {
   stressSection.style.display = "block";
 };
   </script>
+  <!-- EXECUTIVE CREDIT & SMART COPYRIGHT -->
+  <footer style="margin-top: 40px; text-align: center; color: #aaa; font-size: 0.9em; padding: 20px 0; border-top: 1px solid #333;">
+    <p>
+      <strong>Project Lead & Quantitative Architect:</strong><br>
+      <a href="https://www.linkedin.com/in/zakharovaa/" target="_blank" 
+         style="color: #f5a623; text-decoration: none; font-weight: bold;">
+        Andrey Zakharov
+      </a>
+    </p>
+    <p style="margin-top: 8px; font-size: 0.8em; color: #777;">
+      © <span id="year"></span> Portfolio VaR Calculator — 
+      <em>Precision Risk. Future-Proof Finance.</em>
+    </p>
+  </footer>
+
+  <script>
+    // Auto-update copyright year
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
 </body>
 </html>
