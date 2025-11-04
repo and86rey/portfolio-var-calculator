@@ -73,38 +73,29 @@ def get_ticker(ticker: str):
 @app.post("/var")
 def calculate_var(req: PortfolioRequest):
     try:
-        # Validate weights
         weights = np.array(req.weights) / 100
         if not np.isclose(weights.sum(), 1.0):
             raise ValueError("Weights must sum to 100%")
 
-        # Download data
-        raw = yf.download(req.symbols, period="1y", progress=False)
+        # Download with auto_adjust=True → guarantees "Close" is adjusted
+        raw = yf.download(req.symbols, period="1y", progress=False, auto_adjust=True)
         if raw.empty:
             raise ValueError("No price data")
 
-        # === SAFE ADJ CLOSE EXTRACTION ===
+        # Extract "Close" — always exists
         if len(req.symbols) == 1:
-            # Single ticker → flat column
-            data = raw["Adj Close"] if "Adj Close" in raw.columns else raw["Close"]
-            data = data.to_frame(req.symbols[0])
+            data = raw["Close"].to_frame(req.symbols[0])
         else:
-            # Multiple tickers → multi-level columns
-            if "Adj Close" in raw.columns:
-                data = raw["Adj Close"]
-            else:
-                data = raw.xs("Adj Close", axis=1, level=1)
-        
+            data = raw["Close"]
+
         data = data.dropna()
         if data.empty:
-            raise ValueError("No valid price data after cleaning")
+            raise ValueError("No valid data after cleaning")
 
-        # Calculate log returns
         returns = np.log(data / data.shift(1)).dropna()
         if returns.empty:
             raise ValueError("No returns data")
 
-        # Individual VaR
         results = {}
         for sym in req.symbols:
             if sym in returns.columns:
@@ -112,10 +103,8 @@ def calculate_var(req: PortfolioRequest):
             else:
                 results[sym] = {"error": "No data"}
 
-        # Portfolio VaR
         portfolio_returns = returns.dot(weights)
         results["Portfolio"] = calculate_var_single(portfolio_returns.values)
-
         return results
 
     except Exception as e:
