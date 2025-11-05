@@ -19,11 +19,37 @@
     #loadingSpinner { text-align: center; margin: 20px 0; display: none; }
     #chart { background: #111; border-radius: 8px; }
     .section { margin: 25px 0; }
+    .foreword { background: #222; padding: 18px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #f5a623; font-size: 0.95em; line-height: 1.6; }
+    .foreword h3 { margin: 0 0 12px 0; color: #f5a623; }
+    .stress-card { background: #2a2a2a; padding: 15px; border-radius: 10px; margin: 12px 0; border-left: 5px solid #ff6b6b; box-shadow: 0 2px 8px rgba(255,107,107,0.2); }
+    .stress-name { font-weight: bold; color: #ff6b6b; font-size: 1.1em; }
+    .stress-cvar { color: #f66; font-size: 1.3em; }
+    .stress-change { font-size: 1.1em; }
+    .stress-hedge { color: #4ecdc4; font-style: italic; margin-top: 8px; }
+    .impact-bar { height: 8px; background: #444; border-radius: 4px; margin: 8px 0; overflow: hidden; }
+    .impact-fill { height: 100%; background: #ff6b6b; transition: width 0.6s ease; }
+    footer { margin-top: 40px; text-align: center; color: #aaa; font-size: 0.9em; padding: 20px 0; border-top: 1px solid #333; }
+    footer a { color: #f5a623; text-decoration: none; font-weight: bold; }
+    footer a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Portfolio VaR Calculator</h1>
+
+    <!-- FOREWORD: RATIONALE, MATH, GRAPH, USAGE -->
+    <div class="foreword">
+      <h3>Quantitative Risk Engine</h3>
+      <p><strong>VaR (Value at Risk)</strong> measures maximum expected loss over a horizon at 95% confidence. This tool computes:</p>
+      <ul style="margin:8px 0; padding-left:20px;">
+        <li><strong>Normal</strong>: Parametric (mean + 1.645σ)</li>
+        <li><strong>Historical</strong>: 5th percentile of past returns</li>
+        <li><strong>Monte Carlo</strong>: 10,000 simulated paths</li>
+        <li><strong>Cornish-Fisher</strong>: Adjusts for skewness & kurtosis</li>
+      </ul>
+      <p><strong>Graph</strong>: Risk-Return scatter. X-axis = VaR loss (%). Y-axis = expected annual return. <strong>Portfolio in red</strong>.</p>
+      <p><strong>Use</strong>: Search tickers → assign weights → Calculate → Stress Test. <em>Instant, precise, professional-grade.</em></p>
+    </div>
 
     <!-- SEARCH -->
     <div class="section">
@@ -50,44 +76,41 @@
       <h2>Portfolio VaR Results</h2>
       <div id="resultsTable"></div>
       <canvas id="chart" height="320"></canvas>
+    </div>
+
+    <!-- STRESS TEST LAB -->
     <div class="section" id="stressSection" style="display:none;">
       <h2 style="color:#ff6b6b;">Stress Test Lab</h2>
       <button id="runStress" style="background:#ff6b6b; padding:12px 25px; font-weight:bold;">Run Stress Test</button>
       <div id="stressResults" style="margin-top:20px;"></div>
     </div>
-<style>
-  .stress-card {
-    background: #2a2a2a; padding: 15px; border-radius: 10px; margin: 12px 0;
-    border-left: 5px solid #ff6b6b; box-shadow: 0 2px 8px rgba(255,107,107,0.2);
-  }
-  .stress-name { font-weight: bold; color: #ff6b6b; font-size: 1.1em; }
-  .stress-cvar { color: #f66; font-size: 1.3em; }
-  .stress-change { font-size: 1.1em; }
-  .stress-hedge { color: #4ecdc4; font-style: italic; margin-top: 8px; }
-  .impact-bar {
-    height: 8px; background: #444; border-radius: 4px; margin: 8px 0; overflow: hidden;
-  }
-  .impact-fill {
-    height: 100%; background: #ff6b6b; transition: width 0.6s ease;
-  }
-</style>
-    </div>
   </div>
+
+  <!-- EXECUTIVE CREDIT & SMART COPYRIGHT -->
+  <footer>
+    <p>
+      <strong>Project Lead & Quantitative Architect:</strong><br>
+      <a href="https://www.linkedin.com/in/zakharovaa/" target="_blank">
+        Andrii Zakharov
+      </a>
+    </p>
+    <p style="margin-top: 8px; font-size: 0.8em; color: #777;">
+      © <span id="year"></span> Portfolio VaR Calculator — 
+      <em>Precision Risk. Future-Proof Finance.</em>
+    </p>
+  </footer>
 
   <!-- SCRIPT -->
   <script>
-    // script.js — FULLY INCLUDED BELOW (no external file needed for testing)
     const API = "https://portfolio-var-calculator.onrender.com";
-  
-
     let portfolio = [], chart = null;
-    const inp   = document.getElementById("searchInput");
-    const btn   = document.getElementById("searchButton");
-    const res   = document.getElementById("searchResults");
-    const tbl   = document.getElementById("portfolioTable");
-    const calc  = document.getElementById("calculateVar");
-    const out   = document.getElementById("resultsTable");
-    const spin  = document.getElementById("loadingSpinner");
+    const inp = document.getElementById("searchInput");
+    const btn = document.getElementById("searchButton");
+    const res = document.getElementById("searchResults");
+    const tbl = document.getElementById("portfolioTable");
+    const calc = document.getElementById("calculateVar");
+    const out = document.getElementById("resultsTable");
+    const spin = document.getElementById("loadingSpinner");
 
     function loading(txt){ spin.style.display="block"; spin.textContent=txt; }
     function hide(){ setTimeout(()=>{spin.style.display="none";},400); }
@@ -103,7 +126,7 @@
           <div style="padding:10px;background:#222;border-radius:6px;margin:8px 0;">
             <strong>${d.name}</strong> (${d.symbol}) – $${d.price}
             <input id="w" type="number" min="1" max="100" placeholder="Weight %" style="width:70px;margin-left:8px;">
-            <button onclick="add('${d.symbol}','${d.name.replace(/'/g,"\\'")}')" 
+            <button onclick="add('${d.symbol}','${d.name.replace(/'/g,"\\'")}')"
                     style="margin-left:6px;background:#f5a623;color:#000;border:none;padding:4px 10px;border-radius:4px;">Add</button>
           </div>`;
       }catch(e){ res.innerHTML=`<p style="color:#f66;">${e.detail||e}</p>`; }
@@ -118,14 +141,13 @@
       drawTable(); res.innerHTML=""; inp.value="";
     }
     function remove(i){ portfolio.splice(i,1); drawTable(); }
-
     function drawTable(){
       tbl.innerHTML=""; let tot=0;
       portfolio.forEach((p,i)=>{
         tot+=p.weight;
         const tr=tbl.insertRow();
         tr.innerHTML=`<td>${p.name} (${p.symbol})</td><td>${p.weight}%</td>
-                      <td><button onclick="remove(${i})" 
+                      <td><button onclick="remove(${i})"
                       style="background:#c33;color:#fff;padding:3px 7px;border:none;border-radius:3px;">X</button></td>`;
       });
       const ft=tbl.insertRow(); ft.innerHTML=`<td><b>Total</b></td><td><b>${tot.toFixed(1)}%</b></td><td></td>`;
@@ -143,6 +165,7 @@
         const d = await r.json();
         renderTable(d);
         renderChart(d);
+        document.getElementById("stressSection").style.display = "block";
       }catch(e){ out.innerHTML=`<p style="color:#f66;">${e.detail||e}</p>`; }
       hide();
     };
@@ -173,93 +196,48 @@
       chart = new Chart(ctx,{
         type:"scatter", data:{datasets:[{data:pts, backgroundColor:col, pointRadius:sz}]},
         options:{responsive:true, plugins:{legend:{display:false}},
-                 scales:{x:{title:{display:true,text:"VaR 95% loss (%)"}}, 
+                 scales:{x:{title:{display:true,text:"VaR 95% loss (%)"}},
                          y:{title:{display:true,text:"Exp. annual return (%)"}}}}
       });
     }
-  // === STRESS TEST LAB ===
-const stressBtn = document.getElementById("runStress");
-const stressRes = document.getElementById("stressResults");
-const stressSection = document.getElementById("stressSection");
 
-if (stressBtn) {
-  stressBtn.onclick = async () => {
-    if (!portfolio.length) {
-      alert("Build a portfolio first!");
-      return;
-    }
-    stressBtn.disabled = true;
-    stressBtn.textContent = "Running...";
-    stressRes.innerHTML = "<p style='color:#aaa;'>Simulating shocks...</p>";
-
-    try {
-      const payload = {
-        symbols: portfolio.map(p => p.symbol),
-        weights: portfolio.map(p => p.weight)
+    // === STRESS TEST LAB ===
+    const stressBtn = document.getElementById("runStress");
+    const stressRes = document.getElementById("stressResults");
+    if (stressBtn) {
+      stressBtn.onclick = async () => {
+        if (!portfolio.length) { alert("Build a portfolio first!"); return; }
+        stressBtn.disabled = true; stressBtn.textContent = "Running...";
+        stressRes.innerHTML = "<p style='color:#aaa;'>Simulating shocks...</p>";
+        try {
+          const payload = { symbols: portfolio.map(p => p.symbol), weights: portfolio.map(p => p.weight) };
+          const r = await fetch(`${API}/cvar-stress`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+          if (!r.ok) throw await r.json();
+          const d = await r.json();
+          let html = `<div style="font-weight:bold; color:#fff; margin-bottom:10px;">Baseline CVaR: ${(d.baseline.CF95 * 100).toFixed(2)}%</div>`;
+          for (const [name, val] of Object.entries(d.stress)) {
+            const change = val["Change (%)"];
+            const barWidth = Math.min(Math.abs(change), 100);
+            const isLoss = change > 0;
+            html += `
+              <div class="stress-card">
+                <div class="stress-name">${name}</div>
+                <div class="stress-cvar">${(val.CVaR * 100).toFixed(2)}% CVaR</div>
+                <div class="stress-change">${isLoss ? "↑" : "↓"} ${Math.abs(change).toFixed(1)}% vs baseline</div>
+                <div class="impact-bar"><div class="impact-fill" style="width:${barWidth}%; background:${isLoss ? '#ff6b6b' : '#4ecdc4'};"></div></div>
+                <div class="stress-hedge">Hedge: ${val.Hedge}</div>
+              </div>`;
+          }
+          stressRes.innerHTML = html;
+        } catch (e) {
+          stressRes.innerHTML = `<p style="color:#f66;">Error: ${e.detail || e}</p>`;
+        } finally {
+          stressBtn.disabled = false; stressBtn.textContent = "Run Stress Test";
+        }
       };
-      const r = await fetch(`${API}/cvar-stress`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (!r.ok) throw await r.json();
-      const d = await r.json();
-
-      let html = `<div style="font-weight:bold; color:#fff; margin-bottom:10px;">
-                    Baseline CVaR: ${(d.baseline.CF95 * 100).toFixed(2)}%
-                  </div>`;
-
-      for (const [name, val] of Object.entries(d.stress)) {
-        const change = val["Change (%)"];
-        const barWidth = Math.min(Math.abs(change), 100);
-        const isLoss = change > 0;
-        html += `
-          <div class="stress-card">
-            <div class="stress-name">${name}</div>
-            <div class="stress-cvar">${(val.CVaR * 100).toFixed(2)}% CVaR</div>
-            <div class="stress-change">
-              ${isLoss ? "↑" : "↓"} ${Math.abs(change).toFixed(1)}% vs baseline
-            </div>
-            <div class="impact-bar">
-              <div class="impact-fill" style="width:${barWidth}%; background:${isLoss ? '#ff6b6b' : '#4ecdc4'};"></div>
-            </div>
-            <div class="stress-hedge">Hedge: ${val.Hedge}</div>
-          </div>`;
-      }
-      stressRes.innerHTML = html;
-    } catch (e) {
-      stressRes.innerHTML = `<p style="color:#f66;">Error: ${e.detail || e}</p>`;
-    } finally {
-      stressBtn.disabled = false;
-      stressBtn.textContent = "Run Stress Test";
     }
-  };
-}
 
-// SHOW STRESS LAB AFTER VaR
-const originalCalc = calc.onclick;
-calc.onclick = async () => {
-  if (originalCalc) await originalCalc();
-  stressSection.style.display = "block";
-};
-  </script>
-  <!-- EXECUTIVE CREDIT & SMART COPYRIGHT -->
-  <footer style="margin-top: 40px; text-align: center; color: #aaa; font-size: 0.9em; padding: 20px 0; border-top: 1px solid #333;">
-    <p>
-      <strong>Project Lead & Quantitative Architect:</strong><br>
-      <a href="https://www.linkedin.com/in/zakharovaa/" target="_blank" 
-         style="color: #f5a623; text-decoration: none; font-weight: bold;">
-        Andrey Zakharov
-      </a>
-    </p>
-    <p style="margin-top: 8px; font-size: 0.8em; color: #777;">
-      © <span id="year"></span> Portfolio VaR Calculator — 
-      <em>Precision Risk. Future-Proof Finance.</em>
-    </p>
-  </footer>
-
-  <script>
-    // Auto-update copyright year
+    // Auto-update year
     document.getElementById("year").textContent = new Date().getFullYear();
   </script>
 </body>
