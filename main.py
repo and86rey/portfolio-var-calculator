@@ -103,7 +103,6 @@ def get_ticker(ticker: str):
             status_code=503,
             detail="Upstream market data provider unavailable; try again later",
         )
-
 @app.post("/var")
 def calculate_var(req: PortfolioRequest):
     try:
