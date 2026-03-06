@@ -51,49 +51,58 @@ def home():
 
 @app.get("/ticker/{ticker}")
 def get_ticker(ticker: str):
+    symbol = ticker.upper()
     try:
-        t = yf.Ticker(ticker.upper())
-        info = t.info
+        t = yf.Ticker(symbol)
 
-        if not info or len(info) < 5:  # very small dict → likely failed fetch
-            raise ValueError("Empty or incomplete info response from Yahoo Finance")
+        # Best-effort: don't crash if .info is broken
+        try:
+            info = t.info or {}
+        except Exception:
+            info = {}
 
-        # Most reliable order based on 2025–2026 reports
+        # Price from info if possible
         price_candidates = [
             info.get("previousClose"),
             info.get("regularMarketPreviousClose"),
             info.get("currentPrice"),
             info.get("regularMarketPrice"),
-            info.get("navPrice"),           # sometimes used for ETFs/funds
+            info.get("navPrice"),
         ]
+        price = next(
+            (p for p in price_candidates
+             if isinstance(p, (int, float)) and p > 0),
+            None
+        )
 
-        price = next((p for p in price_candidates if p is not None and isinstance(p, (int, float)) and p > 0), None)
-
+        # Fallback: use short history
         if price is None:
-            # Last-resort fallback: short history lookup (usually works when info fails)
-            hist = yf.download(ticker.upper(), period="5d", progress=False)
+            hist = yf.download(symbol, period="5d", progress=False, auto_adjust=True)
             if not hist.empty and "Close" in hist.columns:
-                price = hist["Close"].dropna().iloc[-1]
+                price = float(hist["Close"].dropna().iloc[-1])
             else:
-                raise ValueError("No valid price found in info or recent history")
+                raise ValueError("NO_PRICE")  # distinguishable tag
 
         name = (
             info.get("longName")
             or info.get("shortName")
             or info.get("quoteType", "")
-            or ticker.upper()
+            or symbol
         )
 
-        return {
-            "symbol": ticker.upper(),
-            "name": name,
-            "price": round(float(price), 2)
-        }
+        return {"symbol": symbol, "name": name, "price": round(price, 2)}
 
+    except ValueError as ve:
+        if str(ve) == "NO_PRICE":
+            # Likely invalid/delisted ticker
+            raise HTTPException(status_code=404, detail="Ticker not found")
+        raise HTTPException(status_code=400, detail="Bad request")
     except Exception as e:
-        print(f"Ticker lookup failed for {ticker.upper()}: {str(e)}")
-        detail = "Invalid ticker symbol, temporarily unavailable data, or Yahoo Finance issue"
-        raise HTTPException(status_code=400, detail=detail)
+        # Network / Yahoo / rate-limit problem
+        raise HTTPException(
+            status_code=503,
+            detail="Upstream market data provider unavailable; try again later",
+        )
 
 @app.post("/var")
 def calculate_var(req: PortfolioRequest):
