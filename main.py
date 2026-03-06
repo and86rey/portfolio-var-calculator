@@ -55,24 +55,33 @@ def get_ticker(ticker: str):
         t = yf.Ticker(ticker.upper())
         info = t.info
 
-        if not info:
-            raise ValueError("No info returned from Yahoo Finance")
+        if not info or len(info) < 5:  # very small dict → likely failed fetch
+            raise ValueError("Empty or incomplete info response from Yahoo Finance")
 
-        # Prefer fields in this order (most current → fallback)
-        price = (
-            info.get("regularMarketPrice") or
-            info.get("currentPrice") or
-            info.get("previousClose") or
-            info.get("regularMarketPreviousClose")
-        )
+        # Most reliable order based on 2025–2026 reports
+        price_candidates = [
+            info.get("previousClose"),
+            info.get("regularMarketPreviousClose"),
+            info.get("currentPrice"),
+            info.get("regularMarketPrice"),
+            info.get("navPrice"),           # sometimes used for ETFs/funds
+        ]
 
-        if price is None or not isinstance(price, (int, float)):
-            raise ValueError("Could not extract a valid price")
+        price = next((p for p in price_candidates if p is not None and isinstance(p, (int, float)) and p > 0), None)
+
+        if price is None:
+            # Last-resort fallback: short history lookup (usually works when info fails)
+            hist = yf.download(ticker.upper(), period="5d", progress=False)
+            if not hist.empty and "Close" in hist.columns:
+                price = hist["Close"].dropna().iloc[-1]
+            else:
+                raise ValueError("No valid price found in info or recent history")
 
         name = (
-            info.get("longName") or
-            info.get("shortName") or
-            ticker.upper()
+            info.get("longName")
+            or info.get("shortName")
+            or info.get("quoteType", "")
+            or ticker.upper()
         )
 
         return {
@@ -82,12 +91,9 @@ def get_ticker(ticker: str):
         }
 
     except Exception as e:
-        # Optional: improve logging
-        print(f"Ticker lookup failed for {ticker}: {str(e)}")
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid ticker or temporarily no data available"
-        )
+        print(f"Ticker lookup failed for {ticker.upper()}: {str(e)}")
+        detail = "Invalid ticker symbol, temporarily unavailable data, or Yahoo Finance issue"
+        raise HTTPException(status_code=400, detail=detail)
 
 @app.post("/var")
 def calculate_var(req: PortfolioRequest):
