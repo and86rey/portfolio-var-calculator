@@ -52,22 +52,42 @@ def home():
 @app.get("/ticker/{ticker}")
 def get_ticker(ticker: str):
     try:
-        # FIXED: Valid period
-        hist = yf.download(ticker.upper(), period="5d", progress=False)
-        if hist.empty:
-            raise ValueError("No data")
-        price = hist["Close"].iloc[-1]
-        ticker_obj = yf.Ticker(ticker.upper())
-        info = ticker_obj.info
-        name = info.get("longName") or info.get("shortName") or ticker.upper()
+        t = yf.Ticker(ticker.upper())
+        info = t.info
+
+        if not info:
+            raise ValueError("No info returned from Yahoo Finance")
+
+        # Prefer fields in this order (most current → fallback)
+        price = (
+            info.get("regularMarketPrice") or
+            info.get("currentPrice") or
+            info.get("previousClose") or
+            info.get("regularMarketPreviousClose")
+        )
+
+        if price is None or not isinstance(price, (int, float)):
+            raise ValueError("Could not extract a valid price")
+
+        name = (
+            info.get("longName") or
+            info.get("shortName") or
+            ticker.upper()
+        )
+
         return {
             "symbol": ticker.upper(),
             "name": name,
             "price": round(float(price), 2)
         }
+
     except Exception as e:
-        print(f"Ticker error: {e}")
-        raise HTTPException(status_code=400, detail="Invalid ticker")
+        # Optional: improve logging
+        print(f"Ticker lookup failed for {ticker}: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid ticker or temporarily no data available"
+        )
 
 @app.post("/var")
 def calculate_var(req: PortfolioRequest):
